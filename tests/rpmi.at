@@ -283,6 +283,7 @@ RPMTEST_CLEANUP
 
 AT_SETUP([rpm -U <signed nokey 1>])
 AT_KEYWORDS([install])
+AT_SKIP_IF([test x$PGP = xdummy])
 RPMTEST_CHECK([
 RPMDB_INIT
 
@@ -297,6 +298,7 @@ RPMTEST_CLEANUP
 
 AT_SETUP([rpm -U <signed nokey 2>])
 AT_KEYWORDS([install])
+AT_SKIP_IF([test x$PGP = xdummy])
 RPMTEST_CHECK([
 RPMDB_INIT
 
@@ -313,6 +315,7 @@ RPMTEST_CLEANUP
 
 AT_SETUP([rpm -U <signed 1>])
 AT_KEYWORDS([install])
+AT_SKIP_IF([test x$PGP = xdummy])
 RPMTEST_CHECK([
 RPMDB_INIT
 
@@ -327,6 +330,7 @@ RPMTEST_CLEANUP
 
 AT_SETUP([rpm -U <signed 2>])
 AT_KEYWORDS([install])
+AT_SKIP_IF([test x$PGP = xdummy])
 RPMTEST_CHECK([
 RPMDB_INIT
 
@@ -342,6 +346,7 @@ RPMTEST_CLEANUP
 
 AT_SETUP([rpm -U <corrupted signed 1>])
 AT_KEYWORDS([install])
+AT_SKIP_IF([test x$PGP = xdummy])
 RPMTEST_CHECK_UNQUOTED([
 RPMDB_INIT
 
@@ -368,6 +373,7 @@ RPMTEST_CLEANUP
 
 AT_SETUP([rpm -U <corrupted signed 2>])
 AT_KEYWORDS([install])
+AT_SKIP_IF([test x$PGP = xdummy])
 RPMTEST_CHECK([
 RPMDB_INIT
 
@@ -390,6 +396,7 @@ RPMTEST_CLEANUP
 
 AT_SETUP([rpm -U <corrupted signed 3>])
 AT_KEYWORDS([install])
+AT_SKIP_IF([test x$PGP = xdummy])
 RPMTEST_CHECK([
 RPMDB_INIT
 
@@ -1085,17 +1092,15 @@ RPMTEST_CLEANUP
 
 AT_SETUP([rpm -i relocatable package])
 AT_KEYWORDS([install relocate])
-RPMTEST_CHECK([
 RPMDB_INIT
 
 runroot rpmbuild --quiet -bb /data/SPECS/reloc.spec
 runroot rpmbuild --quiet -bb /data/SPECS/fakeshell.spec
 
 runroot rpm -U /build/RPMS/noarch/fakeshell-1.0-1.noarch.rpm
+
+RPMTEST_CHECK([
 runroot rpm -U \
-  /build/RPMS/noarch/reloc-1.0-1.noarch.rpm
-runroot rpm -e reloc
-runroot rpm -U --relocate /opt/bin=/bin \
   /build/RPMS/noarch/reloc-1.0-1.noarch.rpm
 ],
 [0],
@@ -1105,7 +1110,22 @@ runroot rpm -U --relocate /opt/bin=/bin \
 0: /opt/bin
 1: /opt/etc
 2: /opt/lib
-1: /bin
+],
+[])
+
+RPMTEST_CHECK([
+runroot rpm -e reloc
+],
+[0],
+[],
+[])
+
+RPMTEST_CHECK([
+runroot rpm -U --relocate /opt/bin=/bin \
+  /build/RPMS/noarch/reloc-1.0-1.noarch.rpm
+],
+[0],
+[1: /bin
 2: /opt/etc
 3: /opt/lib
 0: /bin
@@ -1114,6 +1134,7 @@ runroot rpm -U --relocate /opt/bin=/bin \
 ],
 [])
 RPMTEST_CLEANUP
+
 AT_SETUP([rpm -i with/without --excludedocs])
 AT_KEYWORDS([install excludedocs])
 RPMTEST_CHECK([

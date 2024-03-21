@@ -239,17 +239,13 @@ static int luaopt(int c, const char *oarg, int oint, void *data)
 static int rpm_pcall(lua_State *L, int nargs, int nresults, int errfunc)
 {
     pid_t pid = getpid();
-    int status;
 
     int rc = lua_pcall(L, nargs, nresults, errfunc);
 
     /* Terminate unhandled fork from Lua script */
-    if (pid != getpid())
-	_exit(1);
-
-    if (waitpid(0, &status, WNOHANG) == 0) {
-	rpmlog(RPMLOG_WARNING,
-		_("runaway fork() in Lua script\n"));
+    if (pid != getpid()) {
+	rpmlog(RPMLOG_WARNING, _("runaway fork() in Lua script\n"));
+	_exit(EXIT_FAILURE);
     }
 
     return rc;
@@ -857,6 +853,7 @@ static int rpm_splitargs(lua_State *L)
 	lua_pushstring(L, args[i]);
 	lua_rawseti(L, -2, i + 1);
     }
+    argvFree(args);
     return 1;
 }
 
@@ -878,6 +875,7 @@ static int rpm_unsplitargs(lua_State *L)
     str = args ? unsplitQuoted(args, " ") : NULL;
     lua_pushstring(L, str ? str : "");
     free(str);
+    argvFree(args);
     return 1;
 }
 
@@ -1205,6 +1203,7 @@ static int mc_call(lua_State *L)
 		argvAdd(&argv, s);
 		lua_pop(L, 1);
 	    } else {
+		argvFree(argv);
 		luaL_argerror(L, i, "cannot convert to string");
 	    }
 	}
@@ -1214,6 +1213,7 @@ static int mc_call(lua_State *L)
 	    lua_pushstring(L, buf);
 	    free(buf);
 	} else {
+	    argvFree(argv);
 	    luaL_error(L, "error expanding macro");
 	}
 	argvFree(argv);

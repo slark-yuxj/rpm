@@ -71,9 +71,29 @@ other conditionals.
 %if-conditionals are not macros, and are unlikely to yield expected results
 if used in them.
 
+### Sections ###
+
+The spec file is divided in several sections. Except of the preamble
+of the main package right at the start spec file (and spec parts)
+sections begin with a percent sign and the name of the section. They
+need to be at the start of a new line. Most section types allow
+passing options in this first line. These section markers looks like
+macros (with parameters) but are not.
+
+Each section type has its own rules and syntax. Conditionals are
+evaluated first and then macros expanded. Only then are the sections
+parsed by the rules of the section types. The content of build and
+runtime scripts is then passed on the the interpreter - possible being
+stored in a header tag inbetween. The syntax of the other sections is
+described below.
+
 ## Preamble
 
 ### Preamble tags
+
+Since RPM 4.20 preamble tags can be indented with white space. Older
+versions require the Tags to be at the beginning of a line. Comments
+and empty lines are allowed.
 
 #### Name
 
@@ -205,6 +225,12 @@ Obsolete and unused in rpm >= 4.6.0, but permitted for compatibility
 with old packages that might still depend on it.
 
 Do not use in new packages.
+
+#### Buildsystem
+
+Automatically populate the spec build scripts for the given build system,
+such as `Buildsystem: autotools". See [declarative build](buildsystem.md)
+documentation for more details.
 
 #### AutoReqProv
 #### AutoReq
@@ -470,6 +496,33 @@ If the main section exists, it must come first to avoid ambiguity.
 Otherwise, append and prepend can be used in any order and multiple
 times, even if the corresponding main section does not exist.
 
+During the execution of build scriptlets, (at least) the following
+rpm-specific environment variables are set:
+
+Variable            | Description
+--------------------|------------------------------
+RPM_ARCH            | Architecture of the package
+RPM_BUILD_DIR       | The build directory of the package
+RPM_BUILD_NCPUS     | The number of CPUs available for the build
+RPM_BUILD_ROOT      | The buildroot directory of the package
+RPM_BUILD_TIME      | The build time of the package (seconds since the epoch)
+RPM_DOC_DIR         | The special documentation directory of the package
+RPM_LD_FLAGS        | Linker flags
+RPM_OPT_FLAGS       | Compiler flags
+RPM_OS              | OS of the package
+RPM_PACKAGE_NAME    | Rpm name of the source package
+RPM_PACKAGE_VERSION | Rpm version of the source package
+RPM_PACKAGE_RELEASE | Rpm release of the source package
+RPM_SOURCE_DIR      | The source directory of the package
+RPM_SPECPARTS_DIR   | The directory of dynamically generated spec parts
+
+Note: many of these have macro counterparts which may seem more convenient
+and consistent with the rest of the spec, but one should always use
+the environment variables inside the scripts. The reason for this is
+that macros are evaluated during spec parse and may not be up-to-date,
+whereas environment variables are evaluated at the time of their execution
+in the script.
+
 ### %prep
 
 %prep prepares the sources for building. This is where sources are
@@ -498,6 +551,9 @@ can just create the directory. It accepts a number of options:
 -a N        unpack source N after changing to the build directory
 -b N        unpack source N before changing to the build directory
 -c          create the build directory (and change to it) before unpacking
+-C          Create the build directory and ensure the archive contents
+            are unpacked there, stripping the top level directory in the archive
+            if it exists
 -D          do not delete the build directory prior to unpacking (used
             when more than one source is to be unpacked with `-a` or `-b`)
 -n DIR      set the name of build directory (default is `%{name}-%{version}`)
@@ -722,6 +778,11 @@ space is tight.
 
 Used to mark and/or install files as licenses. Same as %doc, but 
 cannot be filtered out as licenses must always be present in packages.
+
+#### %missingok (since rpm >= 4.14 in standalone form)
+
+Used to mark file presence optional, ie one whose absence does not
+cause --verify to fail.
 
 #### %readme
 

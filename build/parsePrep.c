@@ -14,7 +14,6 @@
 #include "rpmbuild_internal.h"
 #include "rpmbuild_misc.h"
 #include "rpmmacro_internal.h"
-#include "rpmug.h"
 #include "debug.h"
 
 static void appendMb(rpmMacroBuf mb, const char *s, int nl)
@@ -31,7 +30,7 @@ static void appendMb(rpmMacroBuf mb, const char *s, int nl)
  */
 static int notCompressed(const char * fn)
 {
-    rpmCompressedMagic compressed = -1;
+    rpmCompressedMagic compressed = COMPRESSED_OTHER; /* arbitrary non-zero */
     struct stat sb;
 
     if (lstat(fn, &sb) == 0)
@@ -127,7 +126,7 @@ exit:
  * @param quietly	should -vv be omitted from tar?
  * @return		expanded %setup macro (NULL on error)
  */
-static char *doUntar(rpmSpec spec, uint32_t c, int quietly)
+static char *doUntar(rpmSpec spec, uint32_t c, int quietly, int autoPath)
 {
     char *buf = NULL;
     struct Source *sp;
@@ -138,7 +137,9 @@ static char *doUntar(rpmSpec spec, uint32_t c, int quietly)
     }
 
     buf = rpmExpand("%{__rpmuncompress} -x ",
-		    quietly ? "" : "-v ","%{shescape:", sp->path, "}", NULL);
+		    quietly ? "" : "-v ",
+		    autoPath ? "-C %{buildsubdir} " : "",
+		    "%{shescape:", sp->path, "}", NULL);
     rstrcat(&buf,
 	"\nSTATUS=$?\n"
 	"if [ $STATUS -ne 0 ]; then\n"
@@ -169,12 +170,13 @@ void doSetupMacro(rpmMacroBuf mb, rpmMacroEntry me, ARGV_t margs, size_t *parsed
     int xx;
     uint32_t num;
     int leaveDirs = 0, skipDefaultAction = 0;
-    int createDir = 0, quietly = 0;
+    int createDir = 0, quietly = 0, autoPath = 0;
     char * dirName = NULL;
     struct poptOption optionsTable[] = {
 	    { NULL, 'a', POPT_ARG_STRING, NULL, 'a',	NULL, NULL},
 	    { NULL, 'b', POPT_ARG_STRING, NULL, 'b',	NULL, NULL},
 	    { NULL, 'c', 0, &createDir, 0,		NULL, NULL},
+	    { NULL, 'C', 0, &autoPath, 0,		NULL, NULL},
 	    { NULL, 'D', 0, &leaveDirs, 0,		NULL, NULL},
 	    { NULL, 'n', POPT_ARG_STRING, &dirName, 0,	NULL, NULL},
 	    { NULL, 'T', 0, &skipDefaultAction, 0,	NULL, NULL},
@@ -205,7 +207,7 @@ void doSetupMacro(rpmMacroBuf mb, rpmMacroEntry me, ARGV_t margs, size_t *parsed
 	    goto exit;
 	}
 
-	{   char *chptr = doUntar(spec, num, quietly);
+	{   char *chptr = doUntar(spec, num, quietly, 0);
 	    if (chptr == NULL)
 		goto exit;
 
@@ -262,7 +264,7 @@ void doSetupMacro(rpmMacroBuf mb, rpmMacroEntry me, ARGV_t margs, size_t *parsed
 
     /* do the default action */
    if (!skipDefaultAction) {
-	char *chptr = doUntar(spec, 0, quietly);
+	char *chptr = doUntar(spec, 0, quietly, autoPath);
 	if (!chptr)
 	    goto exit;
 	appendMb(mb, chptr, 1);
@@ -301,6 +303,7 @@ exit:
     poptFreeContext(optCon);
     free(dirName);
     free(argv);
+    free(line);
 
     return;
 }
@@ -405,6 +408,7 @@ exit:
     free(opt_d);
     free(opt_o);
     free(argv);
+    free(line);
     poptFreeContext(optCon);
     return;
 }

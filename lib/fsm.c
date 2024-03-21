@@ -736,7 +736,7 @@ static int fsmSetmeta(int fd, int dirfd, const char *path,
 		      int nofcaps)
 {
     int rc = 0;
-    const char *dest = rpmfiFN(fi);
+    char *dest = xstrdup(rpmfiFN(fi));
 
     if (!rc && !getuid()) {
 	rc = fsmChown(fd, dirfd, path, st->st_mode, st->st_uid, st->st_gid);
@@ -756,6 +756,7 @@ static int fsmSetmeta(int fd, int dirfd, const char *path,
 					  fd, path, dest,
 					  st->st_mode, action);
     }
+    free(dest);
 
     return rc;
 }
@@ -903,7 +904,7 @@ int rpmPackageFilesInstall(rpmts ts, rpmte te, rpmfiles files,
 	fp->fpath = fsmFsPath(fi, fp->suffix);
 
 	/* Remap file perms, owner, and group. */
-	rc = rpmfiStat(fi, 1, &fp->sb);
+	rc = rpmfiStat(fi, (fp->skip == 0), &fp->sb);
 
 	/* Hardlinks are tricky and handled elsewhere for install */
 	fp->setmeta = (fp->skip == 0) &&
@@ -1174,9 +1175,9 @@ int rpmPackageFilesRemove(rpmts ts, rpmte te, rpmfiles files,
 
 	    if (rc) {
 		int lvl = strict_erasures ? RPMLOG_ERR : RPMLOG_WARNING;
-		rpmlog(lvl, _("%s %s: remove failed: %s\n"),
+		rpmlog(lvl, _("%s %s%s: remove failed: %s\n"),
 			S_ISDIR(fp->sb.st_mode) ? _("directory") : _("file"),
-			fp->fpath, strerror(errno));
+			rpmfiDN(fi), fp->fpath, strerror(errno));
             }
         }
 

@@ -59,11 +59,14 @@ extern const char * macrofiles;
 
 /* rpm macro expansion flags */
 #define RPMEXPAND_EXPAND_ARGS	(1 << 0)	/*!< expand arguments of parametric macros */
+#define RPMEXPAND_KEEP_QUOTED	(1 << 1)	/*!< do not remove quotes from expanded macros */
+#define RPMEXPAND_HAVE_QUOTED	(1 << 2)	/*!< expanded macros contain quote characters */
 
-typedef enum rpmMacroFlags_e {
+enum rpmMacroFlags_e {
     RPMMACRO_DEFAULT	= 0,
     RPMMACRO_LITERAL	= (1 << 0),		/*!< do not expand body of macro */
-} rpmMacroFlags;
+};
+typedef rpmFlags rpmMacroFlags;
 
 /** \ingroup rpmmacro
  * Print macros to file stream.
@@ -132,6 +135,8 @@ int	rpmPushMacroFlags	(rpmMacroContext mc, const char * n,
  * @param o		macro parameters (or NULL)
  * @param f		macro function
  * @param priv		private user data (or NULL)
+ * @param nargs		number of arguments (0-N for enforced check,
+ *			-1 for optional)
  * @param level		macro recursion level (0 is entry API)
  * @param flags		macro flags
  * @return		0 on success
@@ -189,7 +194,7 @@ int	rpmPopMacro	(rpmMacroContext mc, const char * n);
 int	rpmDefineMacro	(rpmMacroContext mc, const char * macro,
 				int level);
 
-/*
+/**
  * Test whether a macro is defined
  * @param mc		macro context (NULL uses global context).
  * @param n		macro name
@@ -197,7 +202,7 @@ int	rpmDefineMacro	(rpmMacroContext mc, const char * macro,
  */
 int rpmMacroIsDefined(rpmMacroContext mc, const char *n);
 
-/*
+/**
  * Test whether a macro is parametric (ie takes arguments)
  * @param mc		macro context (NULL uses global context).
  * @param n		macro name

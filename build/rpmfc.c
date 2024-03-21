@@ -21,7 +21,6 @@
 #include <rpm/rpmfi.h>
 #include <rpm/rpmstrpool.h>
 
-#include "rpmug.h"
 #include "rpmfi_internal.h"		/* rpmfiles stuff for now */
 #include "rpmbuild_internal.h"
 
@@ -92,6 +91,7 @@ struct rpmfcTokens_s {
     const char * token;
     rpm_color_t colors;
 };  
+typedef const struct rpmfcTokens_s * rpmfcToken;
 
 static int intCmp(int a, int b)
 {
@@ -295,6 +295,8 @@ static int getOutputFrom(ARGV_t argv,
 	return -1;
     }
     
+    void *oldhandler = signal(SIGPIPE, SIG_IGN);
+
     child = fork();
     if (child < 0) {
 	rpmlog(RPMLOG_ERR, _("Couldn't fork %s: %s\n"),
@@ -305,14 +307,22 @@ static int getOutputFrom(ARGV_t argv,
 	    close(fromProg[0]);
 	    close(fromProg[1]);
 	}
-	return -1;
+	ret = -1;
+	goto exit;
     }
     if (child == 0) {
+	signal(SIGPIPE, SIG_DFL);
+
 	close(toProg[1]);
 	close(fromProg[0]);
-	
-	dup2(toProg[0], STDIN_FILENO);   /* Make stdin the in pipe */
-	close(toProg[0]);
+
+	if (writePtr) {
+	    /* Make stdin the in pipe */
+	    dup2(toProg[0], STDIN_FILENO);
+	    close(toProg[0]);
+	} else {
+	    close(STDIN_FILENO);
+	}
 
 	dup2(fromProg[1], STDOUT_FILENO); /* Make stdout the out pipe */
 	close(fromProg[1]);
@@ -436,6 +446,7 @@ reap:
     ret = 0;
 
 exit:
+    signal(SIGPIPE, oldhandler);
     return ret;
 }
 
@@ -1181,20 +1192,40 @@ static int initAttrs(rpmfc fc)
     ARGV_t files = NULL;
     char * attrPath = rpmExpand("%{_fileattrsdir}/*.attr", NULL);
     int nattrs = 0;
+    ARGV_t all_attrs = NULL;
 
-    /* Discover known attributes from pathnames + initialize them */
+    /* Discover known attributes from pathnames */
     if (rpmGlob(attrPath, NULL, &files) == 0) {
-	nattrs = argvCount(files);
-	fc->atypes = xcalloc(nattrs + 1, sizeof(*fc->atypes));
-	for (int i = 0; i < nattrs; i++) {
+	int nfiles = argvCount(files);
+	for (int i = 0; i < nfiles; i++) {
 	    char *bn = basename(files[i]);
 	    bn[strlen(bn)-strlen(".attr")] = '\0';
-	    fc->atypes[i] = rpmfcAttrNew(bn);
+	    argvAdd(&all_attrs, bn);
 	}
-	fc->atypes[nattrs] = NULL;
 	argvFree(files);
     }
+
+    /* Get file attributes from _local_file_attrs macro */
+    char * local_attr_names = rpmExpand("%{?_local_file_attrs}", NULL);
+    ARGV_t local_attrs = argvSplitString(local_attr_names, ":", ARGV_SKIPEMPTY);
+    int nlocals = argvCount(local_attrs);
+    for (int i = 0; i < nlocals; i++) {
+	argvAddUniq(&all_attrs, local_attrs[i]);
+    }
+
+    /* Initialize attr objects */
+    nattrs = argvCount(all_attrs);
+    fc->atypes = xcalloc(nattrs + 1, sizeof(*fc->atypes));
+
+    for (int i = 0; i < nattrs; i++) {
+	fc->atypes[i] = rpmfcAttrNew(all_attrs[i]);
+    }
+    fc->atypes[nattrs] = NULL;
+
     free(attrPath);
+    free(local_attr_names);
+    argvFree(local_attrs);
+    argvFree(all_attrs);
     return nattrs;
 }
 
@@ -1213,6 +1244,13 @@ static uint32_t getElfColor(const char *fn)
 		break;
 	    case ELFCLASS32:
 		color = RPMFC_ELF32;
+		break;
+	    }
+
+	    /* Exceptions to coloring */
+	    switch (ehdr.e_machine) {
+	    case EM_BPF:
+		color = 0;
 		break;
 	    }
 	}
@@ -1682,16 +1720,14 @@ rpmRC rpmfcGenerateDepends(const rpmSpec spec, Package pkg)
 	    if (rpmExpandNumeric("%{?_use_weak_usergroup_deps}"))
 		deptag = RPMTAG_RECOMMENDNAME;
 
-	    /* filter out root and current user/group */
-	    if (user && !rstreq(user, UID_0_USER) &&
-			!rstreq(user, rpmugUname(getuid()))) {
+	    /* filter out root user/group */
+	    if (user && !rstreq(user, UID_0_USER)) {
 		rpmds ds = rpmdsSingleNS(fc->pool, deptag, "user",
 					user, NULL, ugfl);
 		rpmdsMerge(packageDependencies(pkg, deptag), ds);
 		rpmdsFree(ds);
 	    }
-	    if (group && !rstreq(group, GID_0_GROUP) &&
-			 !rstreq(group, rpmugGname(getgid()))) {
+	    if (group && !rstreq(group, GID_0_GROUP)) {
 		rpmds ds = rpmdsSingleNS(fc->pool, deptag, "group",
 					group, NULL, ugfl);
 		rpmdsMerge(packageDependencies(pkg, deptag), ds);

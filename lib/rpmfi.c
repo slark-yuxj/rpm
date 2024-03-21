@@ -326,7 +326,6 @@ int rpmfiSetFX(rpmfi fi, int fx)
 
     if (fi != NULL && fx >= 0 && fx < rpmfilesFC(fi->files)) {
 	int dx = fi->j;
-	i = fi->i;
 	fi->i = fx;
 	fi->j = rpmfilesDI(fi->files, fi->i);
 	i = fi->i;
@@ -1031,8 +1030,8 @@ rpmFileAction rpmfilesDecideFate(rpmfiles ofi, int oix,
     char buffer[1024];
     rpmFileTypes dbWhat, newWhat, diskWhat;
     struct stat sb;
-    int save = (newFlags & RPMFILE_NOREPLACE) ? FA_ALTNAME : FA_SAVE;
-    int action = FA_CREATE; /* assume we can create */
+    rpmFileAction save = (newFlags & RPMFILE_NOREPLACE) ? FA_ALTNAME : FA_SAVE;
+    rpmFileAction action = FA_CREATE; /* assume we can create */
 
     /* If the new file is a ghost, leave whatever might be on disk alone. */
     if (newFlags & RPMFILE_GHOST) {
@@ -1170,11 +1169,10 @@ int rpmfilesConfigConflict(rpmfiles fi, int ix)
     if (!(flags & RPMFILE_CONFIG))
 	return 0;
 
-    /* Only links and regular files can be %config, this is kinda moot */
-    /* XXX: Why are we returning 1 here? */
+    /* Only links and regular files can be %config */
     newWhat = rpmfiWhatis(rpmfilesFMode(fi, ix));
     if (newWhat != LINK && newWhat != REG)
-	return 1;
+	return 0;
 
     /* If it's not on disk, there's nothing to be saved */
     fn = rpmfilesFN(fi, ix);
@@ -2386,7 +2384,7 @@ int rpmfiArchiveReadToFilePsm(rpmfi fi, FD_t fd, int nodigest, rpmpsm psm)
 
     rpm_loff_t left = rpmfiFSize(fi);
     const unsigned char * fidigest = NULL;
-    rpmHashAlgo digestalgo = 0;
+    int digestalgo = 0;
     int rc = 0;
     char buf[BUFSIZ*4];
 

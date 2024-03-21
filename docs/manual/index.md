@@ -18,6 +18,7 @@ title: rpm.org - RPM Reference Manual
 ## Package Building
 * [Build Process](buildprocess.md)
 * [Spec Syntax](spec.md)
+  * [Declarative builds](buildsystem.md)
   * [Autosetup](autosetup.md)
   * Dependencies
     * [Dependencies Basics](dependencies.md)
@@ -41,9 +42,9 @@ title: rpm.org - RPM Reference Manual
 * [Plugin API](plugins.md)
 
 ### Package Format
-* [RPM v3 file format](format.md)
-* [RPM v4 header regions](hregions.md)
+* [RPM v4 file format](format_v4.md)
 * [RPM v4 signatures and digests](signatures_digests.md)
+* [RPM v3 file format](format_v3.md) (obsolete)
 
 ### Documentation
 * [Write documentation](devel_documentation.md)

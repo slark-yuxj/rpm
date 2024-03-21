@@ -69,7 +69,7 @@ static int buildIndexes(rpmdb db)
 
     dbSetFSync(db, 0);
 
-    dbCtrl(db, RPMDB_CTRL_LOCK_RW);
+    dbCtrl(db, DB_CTRL_LOCK_RW);
 
     mi = rpmdbInitIterator(db, RPMDBI_PACKAGES, NULL, 0);
     while ((h = rpmdbNextIterator(mi))) {
@@ -1167,7 +1167,6 @@ static char * mireDup(rpmTagVal tag, rpmMireMode *modep,
 int rpmdbSetIteratorRE(rpmdbMatchIterator mi, rpmTagVal tag,
 		rpmMireMode mode, const char * pattern)
 {
-    static rpmMireMode defmode = (rpmMireMode)-1;
     miRE mire = NULL;
     char * allpat = NULL;
     int notmatch = 0;
@@ -1176,22 +1175,6 @@ int rpmdbSetIteratorRE(rpmdbMatchIterator mi, rpmTagVal tag,
     int eflags = 0;
     int fnflags = 0;
     int rc = 0;
-
-    if (defmode == (rpmMireMode)-1) {
-	char *t = rpmExpand("%{?_query_selector_match}", NULL);
-
-	if (*t == '\0' || rstreq(t, "default"))
-	    defmode = RPMMIRE_DEFAULT;
-	else if (rstreq(t, "strcmp"))
-	    defmode = RPMMIRE_STRCMP;
-	else if (rstreq(t, "regex"))
-	    defmode = RPMMIRE_REGEX;
-	else if (rstreq(t, "glob"))
-	    defmode = RPMMIRE_GLOB;
-	else
-	    defmode = RPMMIRE_DEFAULT;
-	free(t);
-     }
 
     /* Handle missing epoch, see mireSkip() */
     if (tag == RPMTAG_EPOCH && pattern == NULL)
@@ -1207,9 +1190,6 @@ int rpmdbSetIteratorRE(rpmdbMatchIterator mi, rpmTagVal tag,
     }
 
     allpat = mireDup(tag, &mode, pattern);
-
-    if (mode == RPMMIRE_DEFAULT)
-	mode = defmode;
 
     switch (mode) {
     case RPMMIRE_DEFAULT:
@@ -2537,7 +2517,7 @@ exit:
 
 int rpmdbCtrl(rpmdb db, rpmdbCtrlOp ctrl)
 {
-    dbCtrlOp dbctrl = 0;
+    dbCtrlOp dbctrl = DB_CTRL_NONE;
     switch (ctrl) {
     case RPMDB_CTRL_LOCK_RO:
 	dbctrl = DB_CTRL_LOCK_RO;

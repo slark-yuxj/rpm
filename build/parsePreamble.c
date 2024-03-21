@@ -293,7 +293,9 @@ int addSource(rpmSpec spec, int specline, const char *srcname, rpmTagVal tag)
     }
 
     if (specline) {
-	nonum = parseTagNumber(spec->line + strlen(name), &num);
+	char * s = spec->line;
+	SKIPSPACE(s);
+	nonum = parseTagNumber(s + strlen(name), &num);
 	if (nonum < 0) {
 	    rpmlog(RPMLOG_ERR, _("line %d: Bad %s number: %s\n"),
 		     spec->lineNum, name, spec->line);
@@ -783,8 +785,23 @@ int addLangTag(rpmSpec spec, Header h, rpmTagVal tag,
     return 0;
 }
 
-static rpmRC handlePreambleTag(rpmSpec spec, Package pkg, rpmTagVal tag,
-		const char *macro, const char *lang)
+static int addBuildOption(rpmSpec spec, const char *sect, const char *opt)
+{
+    rpmRC rc = RPMRC_FAIL;
+    if (*sect == '\0')
+	sect = "conf";
+
+    int sn = getSection(sect);
+    if (sn >= 0) {
+	argvAdd(&(spec->buildopts[sn]), opt);
+	rc = RPMRC_OK;
+    }
+    return rc;
+}
+
+static rpmRC handlePreambleTag(rpmSpec spec, enum parseStages stage,
+			       Package pkg, rpmTagVal tag,
+			       const char *macro, const char *lang)
 {
     char * field = spec->line;
     char * end;
@@ -820,6 +837,15 @@ static rpmRC handlePreambleTag(rpmSpec spec, Package pkg, rpmTagVal tag,
 	multiToken = 1;
 
     switch (tag) {
+    case RPMTAG_BUILDSYSTEM:
+	SINGLE_TOKEN_ONLY;
+	if (checkBuildsystem(spec, field))
+	    goto exit;
+	break;
+    case RPMTAG_BUILDOPTION:
+	if (addBuildOption(spec, lang, field))
+	    goto exit;
+	break;
     case RPMTAG_NAME:
 	SINGLE_TOKEN_ONLY;
 	if (rpmCharCheck(spec, field,
@@ -983,6 +1009,14 @@ static rpmRC handlePreambleTag(rpmSpec spec, Package pkg, rpmTagVal tag,
 		BANames = _free(BANames);
 		goto exit;
 	    }
+	    if (stage == PARSE_GENERATED &&
+		(BACount != 1 || !rstreq(BANames[0], "noarch"))) {
+		rpmlog(RPMLOG_ERR,
+		       _("line %d: Only noarch is allowed after the build: %s\n"),
+		       spec->lineNum, spec->line);
+		BANames = _free(BANames);
+		goto exit;		
+	    }
 	    spec->BACount = BACount;
 	    spec->BANames = BANames;
 	} else {
@@ -1034,75 +1068,78 @@ typedef const struct PreambleRec_s {
     int type;
     int deprecated;
     int ismacro;
+    int prebuildonly;
     size_t len;
     const char * token;
 } * PreambleRec;
 
 static struct PreambleRec_s const preambleList[] = {
-    {RPMTAG_NAME,		0, 0, 1, LEN_AND_STR("name")},
-    {RPMTAG_VERSION,		0, 0, 1, LEN_AND_STR("version")},
-    {RPMTAG_RELEASE,		0, 0, 1, LEN_AND_STR("release")},
-    {RPMTAG_EPOCH,		0, 0, 1, LEN_AND_STR("epoch")},
-    {RPMTAG_SUMMARY,		1, 0, 1, LEN_AND_STR("summary")},
-    {RPMTAG_LICENSE,		0, 0, 1, LEN_AND_STR("license")},
-    {RPMTAG_SOURCELICENSE,	0, 0, 1, LEN_AND_STR("sourcelicense")},
-    {RPMTAG_DISTRIBUTION,	0, 0, 1, LEN_AND_STR("distribution")},
-    {RPMTAG_DISTURL,		0, 0, 1, LEN_AND_STR("disturl")},
-    {RPMTAG_VENDOR,		0, 0, 1, LEN_AND_STR("vendor")},
-    {RPMTAG_GROUP,		1, 0, 1, LEN_AND_STR("group")},
-    {RPMTAG_PACKAGER,		0, 0, 1, LEN_AND_STR("packager")},
-    {RPMTAG_URL,		0, 0, 1, LEN_AND_STR("url")},
-    {RPMTAG_VCS,		0, 0, 1, LEN_AND_STR("vcs")},
-    {RPMTAG_SOURCE,		0, 0, 0, LEN_AND_STR("source")},
-    {RPMTAG_PATCH,		0, 0, 0, LEN_AND_STR("patch")},
-    {RPMTAG_NOSOURCE,		0, 0, 0, LEN_AND_STR("nosource")},
-    {RPMTAG_NOPATCH,		0, 0, 0, LEN_AND_STR("nopatch")},
-    {RPMTAG_EXCLUDEARCH,	0, 0, 0, LEN_AND_STR("excludearch")},
-    {RPMTAG_EXCLUSIVEARCH,	0, 0, 0, LEN_AND_STR("exclusivearch")},
-    {RPMTAG_EXCLUDEOS,		0, 0, 0, LEN_AND_STR("excludeos")},
-    {RPMTAG_EXCLUSIVEOS,	0, 0, 0, LEN_AND_STR("exclusiveos")},
-    {RPMTAG_ICON,		0, 0, 0, LEN_AND_STR("icon")},
-    {RPMTAG_PROVIDENAME,	0, 0, 0, LEN_AND_STR("provides")},
-    {RPMTAG_REQUIRENAME,	2, 0, 0, LEN_AND_STR("requires")},
-    {RPMTAG_RECOMMENDNAME,	0, 0, 0, LEN_AND_STR("recommends")},
-    {RPMTAG_SUGGESTNAME,	0, 0, 0, LEN_AND_STR("suggests")},
-    {RPMTAG_SUPPLEMENTNAME,	0, 0, 0, LEN_AND_STR("supplements")},
-    {RPMTAG_ENHANCENAME,	0, 0, 0, LEN_AND_STR("enhances")},
-    {RPMTAG_PREREQ,		2, 1, 0, LEN_AND_STR("prereq")},
-    {RPMTAG_CONFLICTNAME,	0, 0, 0, LEN_AND_STR("conflicts")},
-    {RPMTAG_OBSOLETENAME,	0, 0, 0, LEN_AND_STR("obsoletes")},
-    {RPMTAG_PREFIXES,		0, 0, 1, LEN_AND_STR("prefixes")},
-    {RPMTAG_PREFIXES,		0, 0, 1, LEN_AND_STR("prefix")},
-    {RPMTAG_BUILDROOT,		0, 0, 0, LEN_AND_STR("buildroot")},
-    {RPMTAG_BUILDARCHS,		0, 0, 0, LEN_AND_STR("buildarchitectures")},
-    {RPMTAG_BUILDARCHS,		0, 0, 0, LEN_AND_STR("buildarch")},
-    {RPMTAG_BUILDCONFLICTS,	0, 0, 0, LEN_AND_STR("buildconflicts")},
-    {RPMTAG_BUILDPREREQ,	0, 1, 0, LEN_AND_STR("buildprereq")},
-    {RPMTAG_BUILDREQUIRES,	0, 0, 0, LEN_AND_STR("buildrequires")},
-    {RPMTAG_AUTOREQPROV,	0, 0, 0, LEN_AND_STR("autoreqprov")},
-    {RPMTAG_AUTOREQ,		0, 0, 0, LEN_AND_STR("autoreq")},
-    {RPMTAG_AUTOPROV,		0, 0, 0, LEN_AND_STR("autoprov")},
-    {RPMTAG_DOCDIR,		0, 0, 0, LEN_AND_STR("docdir")},
-    {RPMTAG_DISTTAG,		0, 0, 1, LEN_AND_STR("disttag")},
-    {RPMTAG_BUGURL,		0, 0, 1, LEN_AND_STR("bugurl")},
-    {RPMTAG_TRANSLATIONURL,	0, 0, 1, LEN_AND_STR("translationurl")},
-    {RPMTAG_UPSTREAMRELEASES,	0, 0, 1, LEN_AND_STR("upstreamreleases")},
-    {RPMTAG_ORDERNAME,		2, 0, 0, LEN_AND_STR("orderwithrequires")},
-    {RPMTAG_REMOVEPATHPOSTFIXES,0, 0, 1, LEN_AND_STR("removepathpostfixes")},
-    {RPMTAG_MODULARITYLABEL,	0, 0, 1, LEN_AND_STR("modularitylabel")},
+    {RPMTAG_NAME,		0, 0, 1, 0, LEN_AND_STR("name")},
+    {RPMTAG_VERSION,		0, 0, 1, 0, LEN_AND_STR("version")},
+    {RPMTAG_RELEASE,		0, 0, 1, 0, LEN_AND_STR("release")},
+    {RPMTAG_EPOCH,		0, 0, 1, 0, LEN_AND_STR("epoch")},
+    {RPMTAG_SUMMARY,		1, 0, 1, 0, LEN_AND_STR("summary")},
+    {RPMTAG_LICENSE,		0, 0, 1, 0, LEN_AND_STR("license")},
+    {RPMTAG_SOURCELICENSE,	0, 0, 1, 0, LEN_AND_STR("sourcelicense")},
+    {RPMTAG_DISTRIBUTION,	0, 0, 1, 0, LEN_AND_STR("distribution")},
+    {RPMTAG_DISTURL,		0, 0, 1, 0, LEN_AND_STR("disturl")},
+    {RPMTAG_VENDOR,		0, 0, 1, 0, LEN_AND_STR("vendor")},
+    {RPMTAG_GROUP,		1, 0, 1, 0, LEN_AND_STR("group")},
+    {RPMTAG_PACKAGER,		0, 0, 1, 0, LEN_AND_STR("packager")},
+    {RPMTAG_URL,		0, 0, 1, 0, LEN_AND_STR("url")},
+    {RPMTAG_VCS,		0, 0, 1, 0, LEN_AND_STR("vcs")},
+    {RPMTAG_SOURCE,		0, 0, 0, 1, LEN_AND_STR("source")},
+    {RPMTAG_PATCH,		0, 0, 0, 1, LEN_AND_STR("patch")},
+    {RPMTAG_NOSOURCE,		0, 0, 0, 1, LEN_AND_STR("nosource")},
+    {RPMTAG_NOPATCH,		0, 0, 0, 1, LEN_AND_STR("nopatch")},
+    {RPMTAG_EXCLUDEARCH,	0, 0, 0, 1, LEN_AND_STR("excludearch")},
+    {RPMTAG_EXCLUSIVEARCH,	0, 0, 0, 1, LEN_AND_STR("exclusivearch")},
+    {RPMTAG_EXCLUDEOS,		0, 0, 0, 1, LEN_AND_STR("excludeos")},
+    {RPMTAG_EXCLUSIVEOS,	0, 0, 0, 1, LEN_AND_STR("exclusiveos")},
+    {RPMTAG_ICON,		0, 0, 0, 0, LEN_AND_STR("icon")},
+    {RPMTAG_PROVIDENAME,	0, 0, 0, 0, LEN_AND_STR("provides")},
+    {RPMTAG_REQUIRENAME,	2, 0, 0, 0, LEN_AND_STR("requires")},
+    {RPMTAG_RECOMMENDNAME,	2, 0, 0, 0, LEN_AND_STR("recommends")},
+    {RPMTAG_SUGGESTNAME,	2, 0, 0, 0, LEN_AND_STR("suggests")},
+    {RPMTAG_SUPPLEMENTNAME,	2, 0, 0, 0, LEN_AND_STR("supplements")},
+    {RPMTAG_ENHANCENAME,	2, 0, 0, 0, LEN_AND_STR("enhances")},
+    {RPMTAG_PREREQ,		2, 1, 0, 0, LEN_AND_STR("prereq")},
+    {RPMTAG_CONFLICTNAME,	0, 0, 0, 0, LEN_AND_STR("conflicts")},
+    {RPMTAG_OBSOLETENAME,	0, 0, 0, 0, LEN_AND_STR("obsoletes")},
+    {RPMTAG_PREFIXES,		0, 0, 1, 0, LEN_AND_STR("prefixes")},
+    {RPMTAG_PREFIXES,		0, 0, 1, 0, LEN_AND_STR("prefix")},
+    {RPMTAG_BUILDROOT,		0, 0, 0, 1, LEN_AND_STR("buildroot")},
+    {RPMTAG_BUILDARCHS,		0, 0, 0, 0, LEN_AND_STR("buildarchitectures")},
+    {RPMTAG_BUILDARCHS,		0, 0, 0, 0, LEN_AND_STR("buildarch")},
+    {RPMTAG_BUILDCONFLICTS,	0, 0, 0, 1, LEN_AND_STR("buildconflicts")},
+    {RPMTAG_BUILDOPTION,	2, 0, 0, 1, LEN_AND_STR("buildoption")},
+    {RPMTAG_BUILDPREREQ,	0, 1, 0, 1, LEN_AND_STR("buildprereq")},
+    {RPMTAG_BUILDREQUIRES,	0, 0, 0, 1, LEN_AND_STR("buildrequires")},
+    {RPMTAG_BUILDSYSTEM,	0, 0, 1, 1, LEN_AND_STR("buildsystem")},
+    {RPMTAG_AUTOREQPROV,	0, 0, 0, 0, LEN_AND_STR("autoreqprov")},
+    {RPMTAG_AUTOREQ,		0, 0, 0, 0, LEN_AND_STR("autoreq")},
+    {RPMTAG_AUTOPROV,		0, 0, 0, 0, LEN_AND_STR("autoprov")},
+    {RPMTAG_DOCDIR,		0, 0, 0, 0, LEN_AND_STR("docdir")},
+    {RPMTAG_DISTTAG,		0, 0, 1, 0, LEN_AND_STR("disttag")},
+    {RPMTAG_BUGURL,		0, 0, 1, 0, LEN_AND_STR("bugurl")},
+    {RPMTAG_TRANSLATIONURL,	0, 0, 1, 0, LEN_AND_STR("translationurl")},
+    {RPMTAG_UPSTREAMRELEASES,	0, 0, 1, 0, LEN_AND_STR("upstreamreleases")},
+    {RPMTAG_ORDERNAME,		2, 0, 0, 0, LEN_AND_STR("orderwithrequires")},
+    {RPMTAG_REMOVEPATHPOSTFIXES,0, 0, 1, 0, LEN_AND_STR("removepathpostfixes")},
+    {RPMTAG_MODULARITYLABEL,	0, 0, 1, 0, LEN_AND_STR("modularitylabel")},
     {0, 0, 0, 0}
 };
 
 /**
  */
-static int findPreambleTag(rpmSpec spec,rpmTagVal * tag,
-		const char ** macro, char * lang)
+static int findPreambleTag(rpmSpec spec, PreambleRec * pr, const char ** macro, char * lang)
 {
     PreambleRec p;
-    char *s;
+    char *s = spec->line;
+    SKIPSPACE(s);
 
     for (p = preambleList; p->token != NULL; p++) {
-	if (!(p->token && !rstrncasecmp(spec->line, p->token, p->len)))
+	if (!(p->token && !rstrncasecmp(s, p->token, p->len)))
 	    continue;
 	if (p->deprecated) {
 	    rpmlog(RPMLOG_WARNING, _("line %d: %s is deprecated: %s\n"),
@@ -1113,7 +1150,7 @@ static int findPreambleTag(rpmSpec spec,rpmTagVal * tag,
     if (p == NULL || p->token == NULL)
 	return 1;
 
-    s = spec->line + p->len;
+    s = s + p->len;
     SKIPSPACE(s);
 
     switch (p->type) {
@@ -1145,13 +1182,12 @@ static int findPreambleTag(rpmSpec spec,rpmTagVal * tag,
 	if (*s != ':') return 1;
 	break;
     }
-
-    *tag = p->tag;
     *macro = p->ismacro ? p->token : NULL;
+    *pr = p;
     return 0;
 }
 
-int parsePreamble(rpmSpec spec, int initialPackage)
+int parsePreamble(rpmSpec spec, int initialPackage, enum parseStages stage)
 {
     int nextPart = PART_ERROR;
     int res = PART_ERROR; /* assume failure */
@@ -1201,13 +1237,13 @@ int parsePreamble(rpmSpec spec, int initialPackage)
     } else {
 	while (! (nextPart = isPart(spec->line))) {
 	    const char * macro;
-	    rpmTagVal tag;
+	    PreambleRec p;
 
 	    /* Skip blank lines */
 	    linep = spec->line;
 	    SKIPSPACE(linep);
 	    if (*linep != '\0') {
-		if (findPreambleTag(spec, &tag, &macro, lang)) {
+		if (findPreambleTag(spec, &p, &macro, lang)) {
 		    if (spec->lineNum == 1 &&
 			(unsigned char)(spec->line[0]) == 0xed &&
 			(unsigned char)(spec->line[1]) == 0xab &&
@@ -1220,7 +1256,12 @@ int parsePreamble(rpmSpec spec, int initialPackage)
 				spec->lineNum, spec->line);
 		    goto exit;
 		}
-		if (handlePreambleTag(spec, pkg, tag, macro, lang)) {
+		if (stage == PARSE_GENERATED && p->prebuildonly) {
+		    rpmlog(RPMLOG_ERR, _("line %d: Tag not allowed after build is done: %s\n"),
+			   spec->lineNum, spec->line);
+		    goto exit;
+		}
+		if (handlePreambleTag(spec, stage, pkg, p->tag, macro, lang)) {
 		    goto exit;
 		}
 		if (spec->BANames && !spec->recursing) {
@@ -1239,28 +1280,38 @@ int parsePreamble(rpmSpec spec, int initialPackage)
 	}
     }
 
-    /* 
-     * Expand buildroot one more time to get %{version} and the like
-     * from the main package, validate sanity. The spec->buildRoot could
-     * still contain unexpanded macros but it cannot be empty or '/', and it
-     * can't be messed with by anything spec does beyond this point.
-     */
     if (initialPackage) {
 	if (checkForRequiredForBuild(pkg->header)) {
 	    goto exit;
 	}
 
-	char *buildRoot = rpmGetPath(spec->buildRoot, NULL);
-	free(spec->buildRoot);
-	spec->buildRoot = buildRoot;
-	rpmPushMacro(spec->macros, "buildroot", NULL, spec->buildRoot, RMIL_SPEC);
-	if (*buildRoot == '\0') {
-	    rpmlog(RPMLOG_ERR, _("%%{buildroot} couldn't be empty\n"));
-	    goto exit;
-	}
-	if (rstreq(buildRoot, "/")) {
-	    rpmlog(RPMLOG_ERR, _("%%{buildroot} can not be \"/\"\n"));
-	    goto exit;
+	if (!spec->buildDir) {
+	    /* Grab top builddir on first entry as we'll override _builddir */
+	    if (!rpmMacroIsDefined(spec->macros, "_top_builddir")) {
+		char *top_builddir = rpmExpand("%{_builddir}", NULL);
+		rpmPushMacroFlags(spec->macros, "_top_builddir", NULL,
+				top_builddir, RMIL_GLOBAL, RPMMACRO_LITERAL);
+		free(top_builddir);
+	    }
+
+	    /* Using release here causes a buildid no-recompute test to fail */
+	    spec->buildDir = rpmExpand("%{_top_builddir}/%{NAME}-%{VERSION}-%{_arch}", NULL);
+	    /* Override toplevel _builddir for backwards compatibility */
+	    rpmPushMacroFlags(spec->macros, "_builddir", NULL, spec->buildDir,
+				RMIL_SPEC, RPMMACRO_LITERAL);
+
+	    /* A user-oriented, unambiguous name for the thing */
+	    rpmPushMacroFlags(spec->macros, "builddir", NULL, spec->buildDir,
+				RMIL_SPEC, RPMMACRO_LITERAL);
+
+	    spec->buildRoot = rpmGetPath(spec->buildDir, "/BUILDROOT", NULL);
+	    rpmPushMacroFlags(spec->macros, "buildroot", NULL, spec->buildRoot,
+				RMIL_SPEC, RPMMACRO_LITERAL);
+
+	    char *specparts = rpmGetPath(spec->buildDir, "/SPECPARTS", NULL);
+	    rpmPushMacroFlags(spec->macros, "specpartsdir", NULL, specparts,
+				RMIL_SPEC, RPMMACRO_LITERAL);
+	    free(specparts);
 	}
     }
 

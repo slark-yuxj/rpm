@@ -25,7 +25,8 @@ ts = rpm.ts()
 ts.setFlags(rpm.RPMTRANS_FLAG_NOPLUGINS)
 $1
 EOF
-${PYTHON} test.py
+# Python is such a mess wrt ASAN, ignore it for now
+LD_PRELOAD=${ASANLIB} ASAN_OPTIONS=detect_leaks=0 ${PYTHON} test.py
 ]])
 
 m4_define([RPMTEST_CHECK],[
@@ -42,6 +43,14 @@ m4_define([RPMTEST_CLEANUP],[
 export RPMTEST="${PWD}/tree"
 snapshot umount
 AT_CLEANUP
+])
+
+m4_define([RPMTEST_CHECK_PINNED],[
+RPMTEST_CHECK_UNQUOTED(
+[source /pinned/$1.sh],
+[0],
+[$(cat /pinned/$1.txt)
+])
 ])
 
 m4_define([RPMPY_CHECK],[

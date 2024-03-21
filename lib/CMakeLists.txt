@@ -16,7 +16,10 @@ target_include_directories(librpm PRIVATE
 	${CMAKE_CURRENT_SOURCE_DIR}
 	${CMAKE_SOURCE_DIR}/rpmio
 	${CMAKE_CURRENT_BINARY_DIR}
+	${Intl_INCLUDE_DIRS}
 )
+# This is needed for rpmcli.h
+target_include_directories(librpm PUBLIC ${POPT_INCLUDE_DIRS})
 
 target_sources(librpm PRIVATE
 	backend/dbi.c backend/dbi.h backend/dummydb.c
@@ -67,11 +70,11 @@ if(WITH_CAP)
 endif()
 
 add_custom_command(OUTPUT tagtbl.C
-	COMMAND AWK=gawk ${CMAKE_CURRENT_SOURCE_DIR}/gentagtbl.sh ${CMAKE_SOURCE_DIR}/include/rpm/rpmtag.h > tagtbl.C
+	COMMAND AWK=${AWK} ${CMAKE_CURRENT_SOURCE_DIR}/gentagtbl.sh ${CMAKE_SOURCE_DIR}/include/rpm/rpmtag.h > tagtbl.C
 	DEPENDS ${CMAKE_SOURCE_DIR}/include/rpm/rpmtag.h gentagtbl.sh
 )
 
 target_link_libraries(librpm PUBLIC librpmio)
-target_link_libraries(librpm PRIVATE PkgConfig::POPT LUA::LUA)
+target_link_libraries(librpm PRIVATE PkgConfig::POPT LUA::LUA ${Intl_LIBRARIES})
 
 install(TARGETS librpm EXPORT rpm-targets)

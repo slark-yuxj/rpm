@@ -143,6 +143,10 @@ Package freePackage(Package pkg)
     pkg->preUnFile = _free(pkg->preUnFile);
     pkg->postUnFile = _free(pkg->postUnFile);
     pkg->verifyFile = _free(pkg->verifyFile);
+    pkg->preTransFile = _free(pkg->preTransFile);
+    pkg->postTransFile = _free(pkg->postTransFile);
+    pkg->preunTransFile = _free(pkg->preunTransFile);
+    pkg->postunTransFile = _free(pkg->postunTransFile);
 
     pkg->header = headerFree(pkg->header);
     pkg->ds = rpmdsFree(pkg->ds);
@@ -217,13 +221,6 @@ rpmSpec newSpec(void)
     spec->readStack->readable = 1;
 
     spec->rootDir = NULL;
-    spec->prep = NULL;
-    spec->conf = NULL;
-    spec->build = NULL;
-    spec->install = NULL;
-    spec->check = NULL;
-    spec->clean = NULL;
-    spec->parsed = NULL;
 
     spec->sources = NULL;
     spec->packages = NULL;
@@ -237,6 +234,7 @@ rpmSpec newSpec(void)
     spec->sourcePackage = NULL;
     
     spec->buildRoot = NULL;
+    spec->buildDir = NULL;
 
     spec->buildRestrictions = headerNew();
     spec->BANames = NULL;
@@ -258,16 +256,12 @@ rpmSpec rpmSpecFree(rpmSpec spec)
 
     if (spec == NULL) return NULL;
 
-    spec->prep = freeStringBuf(spec->prep);
-    spec->conf = freeStringBuf(spec->conf);
-    spec->build = freeStringBuf(spec->build);
-    spec->install = freeStringBuf(spec->install);
-    spec->check = freeStringBuf(spec->check);
-    spec->clean = freeStringBuf(spec->clean);
-    spec->parsed = freeStringBuf(spec->parsed);
-    spec->buildrequires = freeStringBuf(spec->buildrequires);
+    for (int i = 0; i < NR_SECT; i++)
+	freeStringBuf(spec->sections[i]);
+    freeStringBuf(spec->parsed);
 
     spec->buildRoot = _free(spec->buildRoot);
+    spec->buildDir = _free(spec->buildDir);
     spec->specFile = _free(spec->specFile);
 
     closeSpec(spec);
@@ -285,6 +279,10 @@ rpmSpec rpmSpecFree(rpmSpec spec)
     spec->sourcePackage = freePackage(spec->sourcePackage);
 
     spec->buildRestrictions = headerFree(spec->buildRestrictions);
+
+    for (int i = 0; i < NR_SECT; i++) {
+	argvFree(spec->buildopts[i]);
+    }
 
     if (!spec->recursing) {
 	if (spec->BASpecs != NULL)
@@ -306,7 +304,7 @@ rpmSpec rpmSpecFree(rpmSpec spec)
     spec->pool = rpmstrPoolFree(spec->pool);
 
     spec->buildHost = _free(spec->buildHost);
-    
+
     spec = _free(spec);
 
     return spec;
@@ -431,15 +429,22 @@ const char * rpmSpecGetSection(rpmSpec spec, int section)
 {
     if (spec) {
 	switch (section) {
-	case RPMBUILD_NONE:	return getStringBuf(spec->parsed);
-	case RPMBUILD_PREP:	return getStringBuf(spec->prep);
-	case RPMBUILD_CONF:	return getStringBuf(spec->conf);
+	case RPMBUILD_NONE:
+	    return getStringBuf(spec->parsed);
+	case RPMBUILD_PREP:
+	    return getStringBuf(spec->sections[SECT_PREP]);
+	case RPMBUILD_CONF:
+	    return getStringBuf(spec->sections[SECT_CONF]);
 	case RPMBUILD_BUILDREQUIRES:
-				return getStringBuf(spec->buildrequires);
-	case RPMBUILD_BUILD:	return getStringBuf(spec->build);
-	case RPMBUILD_INSTALL:	return getStringBuf(spec->install);
-	case RPMBUILD_CHECK:	return getStringBuf(spec->check);
-	case RPMBUILD_CLEAN:	return getStringBuf(spec->clean);
+	    return getStringBuf(spec->sections[SECT_BUILDREQUIRES]);
+	case RPMBUILD_BUILD:
+	    return getStringBuf(spec->sections[SECT_BUILD]);
+	case RPMBUILD_INSTALL:
+	    return getStringBuf(spec->sections[SECT_INSTALL]);
+	case RPMBUILD_CHECK:
+	    return getStringBuf(spec->sections[SECT_CHECK]);
+	case RPMBUILD_CLEAN:
+	    return getStringBuf(spec->sections[SECT_CLEAN]);
 	}
     }
     return NULL;

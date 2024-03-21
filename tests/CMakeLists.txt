@@ -17,42 +17,49 @@ os_release(OS_NAME ID)
 os_release(OS_VERSION VERSION_ID)
 
 set(PYTHON ${Python3_EXECUTABLE})
-if (WITH_INTERNAL_OPENPGP)
+if (WITH_SEQUOIA)
+	set(PGP sequoia)
+elseif (WITH_INTERNAL_OPENPGP)
 	set(PGP internal)
 else()
-	set(PGP sequoia)
+	set(PGP dummy)
 endif()
 set(HAVE_UNSHARE ${HAVE_UNSHARE})
 
 set(TESTSUITE_AT
-	rpmtests.at
+	rpmpgp.at
 	rpmgeneral.at
+	rpmvercmp.at
+	rpmmacro.at
+	rpmdevel.at
+	rpmpython.at
+	rpmdepmatch.at
 	rpmquery.at
+	rpmspec.at
+	rpmvfylevel.at
+	rpmsigdig.at
+	rpmpkgfmt.at
+	rpmio.at
 	rpmverify.at
 	rpmdb.at
-	rpmbuild.at
-	rpmbuildid.at
 	rpmi.at
 	rpme.at
-	rpmvercmp.at
+	rpmorder.at
+	rpmbuild.at
+	rpmbuildid.at
+	rpmscript.at
 	rpmdeps.at
 	rpmconflict.at
+	rpmreplace.at
 	rpmconfig.at
 	rpmconfig2.at
 	rpmconfig3.at
-	rpmreplace.at
-	rpmmacro.at
-	rpmpython.at
-	rpmdepmatch.at
-	rpmscript.at
-	rpmsigdig.at
-	rpmspec.at
-	rpmio.at
-	rpmorder.at
-	rpmvfylevel.at
-	rpmpgp.at
-	rpmdevel.at
 )
+
+FILE(REMOVE ${CMAKE_CURRENT_BINARY_DIR}/rpmtests.at)
+foreach(at ${TESTSUITE_AT})
+	FILE(APPEND ${CMAKE_CURRENT_BINARY_DIR}/rpmtests.at "m4_include([${at}])\n")
+endforeach()
 
 set(TESTPROGS rpmpgpcheck rpmpgppubkeyfingerprint)
 foreach(prg ${TESTPROGS})
@@ -60,6 +67,8 @@ foreach(prg ${TESTPROGS})
 	target_link_libraries(${prg} PRIVATE librpmio)
 endforeach()
 string(REPLACE ";" " " TESTPROG_NAMES "${TESTPROGS}")
+
+set(PINNED_DIR ${CMAKE_CURRENT_SOURCE_DIR}/pinned)
 
 include(ProcessorCount)
 ProcessorCount(nproc)
@@ -108,7 +117,7 @@ if (MKTREE_NATIVE)
 	add_custom_command(OUTPUT rpmtests
 		COMMAND ${AUTOTEST} -I ${CMAKE_CURRENT_SOURCE_DIR}
 			-o rpmtests rpmtests.at
-		DEPENDS ${TESTSUITE_AT}
+		DEPENDS ${TESTSUITE_AT} rpmtests.at
 		DEPENDS local.at
 	)
 
@@ -124,6 +133,14 @@ endif()
 
 add_custom_target(atshell
 	COMMAND ./mktree atshell ||:
+	DEPENDS tree
+)
+
+add_custom_target(pinned
+	COMMAND ./mktree atshell /pinned/update
+	COMMAND cp pinned/*.txt ${PINNED_DIR}/
+	COMMAND git add ${PINNED_DIR}/*.txt
+	COMMAND git diff --staged ${PINNED_DIR}/*.txt
 	DEPENDS tree
 )
 

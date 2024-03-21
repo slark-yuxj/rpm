@@ -364,6 +364,20 @@ runroot rpm --eval "%{dirname:dir}"
 runroot rpm --eval "%{dirname dir}"
 runroot rpm --eval "%dirname"
 runroot rpm --eval "%dirname dir"
+runroot rpm --eval "%dirname /"
+runroot rpm --eval "%dirname ./"
+runroot rpm --eval "%dirname .."
+runroot rpm --eval "%dirname ../"
+runroot rpm --eval "%dirname ../foo"
+runroot rpm --eval "%dirname /foo"
+runroot rpm --eval "%dirname /foo/"
+runroot rpm --eval "%dirname /foo/foobar"
+runroot rpm --eval "%dirname /foo/foobar/"
+runroot rpm --eval "%basename /foo/foobar"
+runroot rpm --eval "%basename /foo/foobar/"
+runroot rpm --eval "%basename /"
+runroot rpm --eval "%basename foobar/"
+runroot rpm --eval "%basename foobar"
 runroot rpm --define '%xxx /hello/%%%%/world' --eval '%{dirname:%xxx}'
 runroot rpm --eval "%{uncompress}"
 runroot rpm --eval "%{uncompress:}"
@@ -381,10 +395,24 @@ runroot rpm --eval "%shrink %%%%"
 runroot rpm --eval "%verbose foo"
 ],
 [0],
-[
-dir
-dir
-dir
+[.
+.
+.
+.
+/
+.
+.
+.
+..
+/
+/
+/foo
+/foo
+foobar
+foobar
+/
+foobar
+foobar
 /hello/%%
 
 bar
@@ -425,6 +453,27 @@ runroot rpm \
 0
 0
 0
+])
+
+RPMTEST_CHECK([
+runroot rpm \
+    --define 'zzz xxx' \
+    --eval '%zzz' \
+    --eval '%{zzz}' \
+    --eval '%{zzz:}' \
+    --eval '%{zzz }' \
+    --eval '%{zzz aa}'
+],
+[0],
+[xxx
+xxx
+xxx
+xxx
+xxx
+],
+[warning: unexpected argument to non-parametric macro %zzz
+warning: unexpected argument to non-parametric macro %zzz
+warning: unexpected argument to non-parametric macro %zzz
 ])
 RPMTEST_CLEANUP
 
@@ -1101,6 +1150,18 @@ runroot rpm \
 [])
 RPMTEST_CLEANUP
 
+AT_SETUP([%shescape macro with multiple arguments])
+AT_KEYWORDS([macros])
+RPMTEST_CHECK([
+runroot rpm \
+	--eval "%{shescape foo bar's}"
+],
+[0],
+['foo' 'bar'\''s'
+],
+[])
+
+RPMTEST_CLEANUP
 AT_SETUP([macro with a line starting by "{"])
 AT_KEYWORDS([macros])
 RPMTEST_CHECK([
@@ -1310,13 +1371,14 @@ nil	No such file or directory	2.0
 ],
 [])
 
-# This uses io.stderr:write() because the grue from the previous test 
-# appears to have eaten stdout of the forked child, or something.
 RPMTEST_CHECK([
-runroot_other rpmlua -e 'pid = posix.fork(); if pid == 0 then a,b,c=rpm.redirect2null(-1); io.stderr:write(string.format("%s\t%s\t%s\n", a,b,c)) else posix.wait(pid) end'
+runroot_other rpmlua -e 'pid = posix.fork(); if pid == 0 then a,b,c=rpm.redirect2null(-1); print(string.format("%s\t%s\t%s", a,b,c)); io.flush() else posix.wait(pid) end'
 ],
 [0],
-[],
 [nil	Bad file descriptor	9.0
-])
+],
+[warning: posix.fork(): .fork(), .exec(), .wait() and .redirect2null() are deprecated, use rpm.execute() instead
+warning: posix.wait(): .fork(), .exec(), .wait() and .redirect2null() are deprecated, use rpm.execute() instead
+warning: runaway fork() in Lua script]
+)
 RPMTEST_CLEANUP

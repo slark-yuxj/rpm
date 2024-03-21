@@ -21,6 +21,23 @@
 #define ALLOWED_CHARS_EVR ALLOWED_CHARS_VERREL "-:"
 #define LEN_AND_STR(_tag) (sizeof(_tag)-1), (_tag)
 
+enum parseStages {
+    PARSE_SPECFILE,
+    PARSE_BUILDSYS,
+    PARSE_GENERATED,
+};
+
+enum sections_e {
+    SECT_PREP		= 0,
+    SECT_CONF		= 1,
+    SECT_BUILDREQUIRES	= 2,
+    SECT_BUILD		= 3,
+    SECT_INSTALL	= 4,
+    SECT_CHECK		= 5,
+    SECT_CLEAN		= 6,
+};
+#define NR_SECT 7
+
 struct TriggerFileEntry {
     int index;
     char * fileName;
@@ -103,6 +120,7 @@ struct rpmSpec_s {
 
     char * specFile;	/*!< Name of the spec file. */
     char * buildRoot;
+    char * buildDir;
     const char * rootDir;
 
     struct OpenFileInfo * fileStack;
@@ -137,13 +155,8 @@ struct rpmSpec_s {
     rpmMacroContext macros;
     rpmstrPool pool;
 
-    StringBuf prep;		/*!< %prep scriptlet. */
-    StringBuf conf;		/*!< %conf scriptlet. */
-    StringBuf buildrequires;	/*!< %buildrequires scriptlet. */
-    StringBuf build;		/*!< %build scriptlet. */
-    StringBuf install;		/*!< %install scriptlet. */
-    StringBuf check;		/*!< %check scriptlet. */
-    StringBuf clean;		/*!< %clean scriptlet. */
+    StringBuf sections[NR_SECT]; /*!< spec sections (%prep etc) */
+    ARGV_t buildopts[NR_SECT];	/*!< per-section buildsystem options */
 
     StringBuf parsed;		/*!< parsed spec contents */
 
@@ -352,10 +365,11 @@ int parsePolicies(rpmSpec spec);
  * Parse tags from preamble of a spec file.
  * @param spec		spec file control structure
  * @param initialPackage
+ * @param stage
  * @return		>= 0 next rpmParseState, < 0 on error
  */
 RPM_GNUC_INTERNAL
-int parsePreamble(rpmSpec spec, int initialPackage);
+int parsePreamble(rpmSpec spec, int initialPackage, enum parseStages stage);
 
 /** \ingroup rpmbuild
  * Parse %%pre et al scriptlets from a spec file.
@@ -624,6 +638,9 @@ RPM_GNUC_INTERNAL
 int checkForDuplicates(Header h);
 
 RPM_GNUC_INTERNAL
+int checkBuildsystem(rpmSpec spec, const char *buildsys);
+
+RPM_GNUC_INTERNAL
 void fillOutMainPackage(Header h);
 
 RPM_GNUC_INTERNAL
@@ -633,6 +650,10 @@ RPM_GNUC_INTERNAL
 void doSetupMacro(rpmMacroBuf mb, rpmMacroEntry me, ARGV_t margs, size_t *parsed);
 RPM_GNUC_INTERNAL
 void doPatchMacro(rpmMacroBuf mb, rpmMacroEntry me, ARGV_t margs, size_t *parsed);
+
+/* Return section number, -1 on error */
+RPM_GNUC_INTERNAL
+int getSection(const char *name);
 
 #ifdef __cplusplus
 }

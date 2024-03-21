@@ -13,9 +13,8 @@ build results.
 
 The files need to be placed in the **%{specpartsdir}** (also available
 as **$RPM_SPECPARTS_DIR** in the build scripts) and have a
-**.specpart** postfix. The directory is created by **%setup**. Default
-location is **%{_builddir}/%{buildsubdir}-SPECPARTS** which is beside
-the **%{buildsubdir}**. Scripts must not create it themselves but must
+**.specpart** postfix. The directory is created by **%setup**.
+Scripts must not create it themselves but must
 either fail if it is not present or switch to an alternative that does
 not require the feature. They should give an error message that
 dynamic spec generation is not supported on the given RPM version when
@@ -34,3 +33,14 @@ interpreted right away.
 
 [Example](https://github.com/rpm-software-management/rpm/blob/master/tests/data/SPECS/dynamic.spec)
 from our tests set.
+
+As dynamic spec parts are generate during build they cannot include
+directives that are needed for or influence building. This includes
+all build scripts, sources and patches, Build dependencies, tags
+regarding the build environment (**ExcludeArch**, **ExclusiveArch**,
+**ExcludeOS**, **ExclusiveOS**), **BuildArch** except for declaring
+sub packages **noarch** and **BuildSystem**. These will create an
+error if encountered in a dynamically generated spec part.
+
+While declaring macros used in the build scripts are not an error they
+won't have an influence on the build for obvious reasons.

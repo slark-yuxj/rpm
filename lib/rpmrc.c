@@ -36,6 +36,7 @@
 #include "rpmio_internal.h"	/* XXX for rpmioSlurp */
 #include "misc.h"
 #include "backend/dbi.h"
+#include "rpmug.h"
 
 #include "debug.h"
 
@@ -161,7 +162,6 @@ static void rpmRebuildTargetVars(rpmrcCtx ctx, const char **target, const char *
 static rpmrcCtx rpmrcCtxAcquire(int write)
 {
     static struct rpmrcCtx_s _globalCtx = {
-	.lock = PTHREAD_RWLOCK_INITIALIZER,
 	.currTables = { RPM_MACHTABLE_INSTOS, RPM_MACHTABLE_INSTARCH },
 	.tables = {
 	    { "arch", 1, 0 },
@@ -169,6 +169,7 @@ static rpmrcCtx rpmrcCtxAcquire(int write)
 	    { "buildarch", 0, 1 },
 	    { "buildos", 0, 1 }
 	},
+	.lock = PTHREAD_RWLOCK_INITIALIZER,
     };
     rpmrcCtx ctx = &_globalCtx;
 
@@ -1872,6 +1873,7 @@ void rpmFreeRpmrc(void)
     rpmFreeCrypto();
     rpmlua lua = rpmluaGetGlobalState();
     rpmluaFree(lua);
+    rpmugFree();
 
     rpmrcCtxRelease(ctx);
     return;

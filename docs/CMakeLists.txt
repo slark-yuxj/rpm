@@ -3,20 +3,29 @@ mark_as_advanced(PANDOC)
 
 add_subdirectory(man)
 
-find_package(Doxygen)
+if (WITH_DOXYGEN)
+    find_package(Doxygen REQUIRED)
+endif()
 if (DOXYGEN_FOUND)
 	# XXX API docs should be pre-built in tarballs
 	file(GLOB headers ${CMAKE_SOURCE_DIR}/include/rpm/*.h)
+	set(DOXYGEN_WARN_IF_UNDOCUMENTED NO)
+	set(DOXYGEN_OPTIMIZE_OUTPUT_FOR_C YES)
+	if (ENABLE_WERROR)
+		set(DOXYGEN_WARN_AS_ERROR YES)
+	endif()
 	doxygen_add_docs(apidoc librpm/Doxyheader.h ${headers}
 			ALL USE_STAMP_FILE)
 	set(doxsrc ${CMAKE_CURRENT_BINARY_DIR})
 elseif (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/html/index.html)
 	set(doxsrc ${CMAKE_CURRENT_SOURCE_DIR})
 endif()
-install(DIRECTORY ${doxsrc}/html/ DESTINATION ${CMAKE_INSTALL_DOCDIR}/API)
+
+if (doxsrc)
+	install(DIRECTORY ${doxsrc}/html/ DESTINATION ${CMAKE_INSTALL_DOCDIR}/API)
+endif()
 
 install(FILES
-	README.md
 	manual/arch_dependencies.md
 	manual/autosetup.md
 	manual/boolean_dependencies.md
@@ -27,8 +36,8 @@ install(FILES
 	manual/devel_documentation.md
 	manual/dynamic_specs.md
 	manual/file_triggers.md
-	manual/format.md
-	manual/hregions.md
+	manual/format_v3.md
+	manual/format_v4.md
 	manual/index.md
 	manual/large_files.md
 	manual/lua.md

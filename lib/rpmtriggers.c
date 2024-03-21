@@ -162,6 +162,8 @@ int runPostUnTransFileTrigs(rpmts ts)
 {
     int i;
     Header trigH;
+    const char * trigName = NULL;
+    int arg1 = 0;
     struct rpmtd_s installPrefixes;
     rpmScript script;
     rpmtriggers trigs = ts->trigs2run;
@@ -186,7 +188,11 @@ int runPostUnTransFileTrigs(rpmts ts)
 	headerGet(trigH, RPMTAG_INSTPREFIXES, &installPrefixes,
 		HEADERGET_ALLOC|HEADERGET_ARGV);
 
-	nerrors += runScript(ts, NULL, trigH, installPrefixes.data, script, 0, -1);
+	trigName = headerGetString(trigH, RPMTAG_NAME);
+	arg1 = rpmdbCountPackages(rpmtsGetRdb(ts), trigName);
+
+	nerrors += runScript(ts, NULL, trigH, installPrefixes.data, script,
+			     arg1, -1);
 	rpmtdFreeData(&installPrefixes);
 	rpmScriptFree(script);
 	headerFree(trigH);
@@ -195,50 +201,6 @@ int runPostUnTransFileTrigs(rpmts ts)
     return nerrors;
 }
 
-/*
- * Get files from next package from match iterator. If files are
- * available in memory then don't read them from rpmdb.
- */
-static rpmfiles rpmtsNextFiles(rpmts ts, rpmdbMatchIterator mi)
-{
-    Header h;
-    rpmte *te;
-    rpmfiles files = NULL;
-    rpmstrPool pool = ts->members->pool;
-    int ix;
-    unsigned int offset;
-
-    ix = rpmdbGetIteratorIndex(mi);
-    if (ix < rpmdbGetIteratorCount(mi)) {
-	offset = rpmdbGetIteratorOffsetFor(mi, ix);
-	if (packageHashGetEntry(ts->members->removedPackages, offset,
-				&te, NULL, NULL)) {
-	    /* Files are available in memory */
-	    files  = rpmteFiles(te[0]);
-	}
-
-	if (packageHashGetEntry(ts->members->installedPackages, offset,
-				&te, NULL, NULL)) {
-	    /* Files are available in memory */
-	    files  = rpmteFiles(te[0]);
-	}
-    }
-
-    if (files) {
-	rpmdbSetIteratorIndex(mi, ix + 1);
-    } else {
-	/* Files are not available in memory. Read them from rpmdb */
-	h = rpmdbNextIterator(mi);
-	if (h) {
-	    files = rpmfilesNew(pool, h, RPMTAG_BASENAMES,
-				RPMFI_FLAGS_FILETRIGGER);
-	}
-    }
-
-    return files;
-}
-
-
 typedef struct matchFilesIter_s {
     rpmts ts;
     rpmds rpmdsTrigger;
@@ -246,9 +208,55 @@ typedef struct matchFilesIter_s {
     rpmfi fi;
     rpmfs fs;
     const char *pfx;
+    const char *pkgname;
     rpmdbMatchIterator pi;
     packageHash tranPkgs;
 } *matchFilesIter;
+
+/*
+ * Get files from next package from match iterator. If files are
+ * available in memory then don't read them from rpmdb.
+ */
+static rpmfiles rpmtsNextFiles(matchFilesIter mfi)
+{
+    Header h;
+    rpmte *te;
+    rpmfiles files = NULL;
+    rpmstrPool pool = mfi->ts->members->pool;
+    int ix;
+    unsigned int offset;
+
+    ix = rpmdbGetIteratorIndex(mfi->pi);
+    if (ix < rpmdbGetIteratorCount(mfi->pi)) {
+	offset = rpmdbGetIteratorOffsetFor(mfi->pi, ix);
+	if (packageHashGetEntry(mfi->ts->members->removedPackages, offset,
+				&te, NULL, NULL)) {
+	    /* Files are available in memory */
+	    files  = rpmteFiles(te[0]);
+	}
+
+	if (packageHashGetEntry(mfi->ts->members->installedPackages, offset,
+				&te, NULL, NULL)) {
+	    /* Files are available in memory */
+	    files  = rpmteFiles(te[0]);
+	}
+    }
+
+    if (files) {
+	rpmdbSetIteratorIndex(mfi->pi, ix + 1);
+	mfi->pkgname = rpmteN(te[0]);
+    } else {
+	/* Files are not available in memory. Read them from rpmdb */
+	h = rpmdbNextIterator(mfi->pi);
+	if (h) {
+	    files = rpmfilesNew(pool, h, RPMTAG_BASENAMES,
+				RPMFI_FLAGS_FILETRIGGER);
+	    mfi->pkgname = headerGetString(h, RPMTAG_NAME);
+	}
+    }
+
+    return files;
+}
 
 static matchFilesIter matchFilesIterator(rpmds trigger, rpmfiles files, rpmte te)
 {
@@ -321,7 +329,7 @@ static const char *matchFilesNext(matchFilesIter mfi)
 	    /* If we are done with current mfi->fi, create mfi->fi for next package */
 	    rpmfilesFree(mfi->files);
 	    rpmfiFree(mfi->fi);
-	    mfi->files = rpmtsNextFiles(mfi->ts, mfi->pi);
+	    mfi->files = rpmtsNextFiles(mfi);
 	    mfi->fi = rpmfilesFindPrefix(mfi->files, mfi->pfx);
 	    if (mfi->files)
 		continue;
@@ -379,7 +387,7 @@ static matchFilesIter matchFilesIteratorFree(matchFilesIter mfi)
  */
 static int runHandleTriggersInPkg(rpmts ts, rpmte te, Header h,
 				rpmsenseFlags sense, rpmscriptTriggerModes tm,
-				int searchMode, int ti)
+				int searchMode, int ti, int arg1, int arg2)
 {
     int nerrors = 0;
     rpmds rpmdsTriggers, rpmdsTrigger;
@@ -433,8 +441,12 @@ static int runHandleTriggersInPkg(rpmts ts, rpmte te, Header h,
 	    inputFunc = (nextfilefunc) matchFilesNext;
 	    rpmScriptSetNextFileFunc(script, inputFunc, mfi);
 
+	    /* Compute our own arg2 if asked */
+	    if (arg2 < 0 && tm == RPMSCRIPT_FILETRIGGER && mfi->pkgname)
+		arg2 = rpmdbCountPackages(rpmtsGetRdb(ts), mfi->pkgname);
+
 	    nerrors += runScript(ts, NULL, h, installPrefixes.data,
-				script, 0, -1);
+				script, arg1, arg2);
 	    rpmtdFreeData(&installPrefixes);
 	    rpmScriptFree(script);
 	}
@@ -484,7 +496,7 @@ static int matchFilesInTran(rpmts ts, rpmte te, const char *pfx,
     return rc;
 }
 
-rpmRC runFileTriggers(rpmts ts, rpmte te, rpmsenseFlags sense,
+rpmRC runFileTriggers(rpmts ts, rpmte te, int arg2, rpmsenseFlags sense,
 			rpmscriptTriggerModes tm, int priorityClass)
 {
     int nerrors = 0, i;
@@ -493,6 +505,8 @@ rpmRC runFileTriggers(rpmts ts, rpmte te, rpmsenseFlags sense,
     char *pfx;
     size_t keylen;
     Header trigH;
+    const char * trigName = NULL;
+    int arg1 = 0;
     int (*matchFunc)(rpmts, rpmte, const char*, rpmsenseFlags sense);
     rpmTagVal priorityTag;
     rpmtriggers triggers = rpmtriggersCreate(10);
@@ -564,12 +578,17 @@ rpmRC runFileTriggers(rpmts ts, rpmte te, rpmsenseFlags sense,
 	}
 
 	trigH = rpmdbGetHeaderAt(rpmtsGetRdb(ts), triggers->triggerInfo[i].hdrNum);
+	trigName = headerGetString(trigH, RPMTAG_NAME);
+	arg1 = rpmdbCountPackages(rpmtsGetRdb(ts), trigName);
+
 	if (tm == RPMSCRIPT_FILETRIGGER)
 	    nerrors += runHandleTriggersInPkg(ts, te, trigH, sense, tm, 0,
-						triggers->triggerInfo[i].tix);
+						triggers->triggerInfo[i].tix,
+						arg1, arg2);
 	else
 	    nerrors += runHandleTriggersInPkg(ts, te, trigH, sense, tm, 1,
-						triggers->triggerInfo[i].tix);
+						triggers->triggerInfo[i].tix,
+						arg1, arg2);
 	headerFree(trigH);
     }
     rpmtriggersFree(triggers);
@@ -577,7 +596,7 @@ rpmRC runFileTriggers(rpmts ts, rpmte te, rpmsenseFlags sense,
     return (nerrors == 0) ? RPMRC_OK : RPMRC_FAIL;
 }
 
-rpmRC runImmedFileTriggers(rpmts ts, rpmte te, rpmsenseFlags sense,
+rpmRC runImmedFileTriggers(rpmts ts, rpmte te, int arg1, rpmsenseFlags sense,
 			    rpmscriptTriggerModes tm, int priorityClass)
 {
     int nerrors = 0;
@@ -616,7 +635,8 @@ rpmRC runImmedFileTriggers(rpmts ts, rpmte te, rpmsenseFlags sense,
 	}
 
 	nerrors += runHandleTriggersInPkg(ts, te, trigH, sense, tm, 2,
-					    triggers->triggerInfo[i].tix);
+					    triggers->triggerInfo[i].tix,
+					    arg1, -1);
     }
     rpmtriggersFree(triggers);
     headerFree(trigH);

@@ -18,6 +18,8 @@ option(ENABLE_SQLITE "Enable sqlite rpmdb support" ON)
 option(ENABLE_NDB "Enable ndb rpmdb support" ON)
 option(ENABLE_BDB_RO "Enable read-only Berkeley DB rpmdb support (EXPERIMENTAL)" OFF)
 option(ENABLE_TESTSUITE "Enable test-suite" ON)
+option(ENABLE_ASAN "Enable address-sanitizer" OFF)
+option(ENABLE_UBSAN "Enable undefined behavior-sanitizer" OFF)
 
 option(WITH_CAP "Build with capability support" ON)
 option(WITH_ACL "Build with ACL support" ON)
@@ -28,6 +30,16 @@ option(WITH_AUDIT "Build with audit support" ON)
 option(WITH_FSVERITY "Build with fsverity support" OFF)
 option(WITH_IMAEVM "Build with IMA support" OFF)
 option(WITH_FAPOLICYD "Build with fapolicyd support" ON)
+option(WITH_SEQUOIA "Build with Sequoia OpenPGP support" ON)
+option(WITH_OPENSSL "Use openssl instead of libgcrypt for internal crypto" OFF)
+option(WITH_READLINE "Build with readline support" ON)
+option(WITH_BZIP2 "Build with bzip2 support" ON)
+option(WITH_ICONV "Build with iconv support" ON)
+option(WITH_ZSTD "Build with zstd support" ON)
+option(WITH_LIBDW "Build with libdw support" ON)
+option(WITH_LIBELF "Build with libelf support" ON)
+option(WITH_LIBLZMA "Build with liblzma support" ON)
+option(WITH_DOXYGEN "Build with doxygen support" ON)
 
 set(RPM_CONFIGDIR "${CMAKE_INSTALL_PREFIX}/lib/rpm" CACHE PATH "rpm home")
 set(RPM_MACROSDIR "${RPM_CONFIGDIR}/macros.d")
@@ -49,9 +61,13 @@ set(CMAKE_SHARED_LIBRARY_PREFIX "")
 set(CMAKE_SHARED_MODULE_PREFIX "")
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 include(GNUInstallDirs)
+include(CheckSymbolExists)
 add_compile_definitions(_GNU_SOURCE)
 add_definitions(-D_FILE_OFFSET_BITS=64)
 
+# Find a (system) utility in canonical FHS paths, excluding $PATH.  Useful for
+# when the path is to be used at RPM runtime, such as in the macro files.  The
+# MYPATH environment variable can be used to augment these paths.
 function(findutil UTIL TRY)
 	list(GET TRY 0 util)
 	find_program(${UTIL}
@@ -128,6 +144,7 @@ function(makemacros)
 	findutil(__OBJDUMP objdump)
 	findutil(__STRIP strip)
 	findutil(__SYSTEMD_SYSUSERS systemd-sysusers)
+	findutil(__FIND_DEBUGINFO find-debuginfo)
 	findutil(__AWK awk)
 	findutil(__AR ar)
 	findutil(__AS as)
@@ -171,11 +188,12 @@ include(CheckLibraryExists)
 include(CheckFunctionExists)
 include(CheckIncludeFile)
 include(CheckCCompilerFlag)
+include(CheckVariableExists)
 
 set(OPTFUNCS
 	stpcpy stpncpy putenv mempcpy fdatasync lutimes mergesort
 	getauxval setprogname __progname syncfs sched_getaffinity unshare
-	secure_getenv __secure_getenv mremap
+	secure_getenv __secure_getenv mremap strchrnul
 )
 set(REQFUNCS
 	mkstemp getcwd basename dirname realpath setenv unsetenv regcomp
@@ -187,15 +205,32 @@ set(REQFUNCS
 find_package(PkgConfig REQUIRED)
 find_package(Lua 5.2 REQUIRED)
 find_package(ZLIB REQUIRED)
-find_package(BZip2)
-find_package(Iconv)
+if (WITH_BZIP2)
+    find_package(BZip2 REQUIRED)
+endif()
+if (WITH_ICONV)
+    find_package(Iconv REQUIRED)
+endif()
 
 pkg_check_modules(POPT REQUIRED IMPORTED_TARGET popt)
-pkg_check_modules(READLINE IMPORTED_TARGET readline)
-pkg_check_modules(ZSTD IMPORTED_TARGET libzstd>=1.3.8)
-pkg_check_modules(LIBELF IMPORTED_TARGET libelf)
-pkg_check_modules(LIBDW IMPORTED_TARGET libdw)
-pkg_check_modules(LIBLZMA IMPORTED_TARGET liblzma>=5.2.0)
+
+if (WITH_READLINE)
+    pkg_check_modules(READLINE REQUIRED IMPORTED_TARGET readline)
+endif()
+
+if (WITH_ZSTD)
+    pkg_check_modules(ZSTD REQUIRED IMPORTED_TARGET libzstd>=1.3.8)
+endif()
+if (WITH_LIBELF)
+    pkg_check_modules(LIBELF REQUIRED IMPORTED_TARGET libelf)
+endif()
+if (WITH_LIBDW)
+    pkg_check_modules(LIBDW REQUIRED IMPORTED_TARGET libdw)
+endif()
+if (WITH_LIBLZMA)
+    pkg_check_modules(LIBLZMA REQUIRED IMPORTED_TARGET liblzma>=5.2.0)
+endif()
+pkg_check_modules(LIBARCHIVE REQUIRED IMPORTED_TARGET libarchive)
 
 # Lua module does not ship an IMPORTED target, define our own
 add_library(LUA::LUA INTERFACE IMPORTED)
@@ -219,6 +254,7 @@ endif()
 
 if (ENABLE_NLS)
 	find_package(Intl REQUIRED)
+	check_variable_exists(_nl_msg_cat_cntr HAVE_NL_MSG_CAT_CNTR)
 endif()
 
 if (ENABLE_SQLITE)
@@ -255,10 +291,6 @@ if (WITH_SELINUX)
 	pkg_check_modules(SELINUX REQUIRED IMPORTED_TARGET libselinux)
 endif()
 
-if (WITH_ARCHIVE)
-	pkg_check_modules(LIBARCHIVE REQUIRED IMPORTED_TARGET libarchive)
-endif()
-
 if (WITH_FSVERITY)
 	pkg_check_modules(FSVERITY REQUIRED IMPORTED_TARGET libfsverity)
 endif()
@@ -275,8 +307,11 @@ if (WITH_IMAEVM)
 	target_include_directories(IMA::IMA INTERFACE "${IMA_INCLUDE_DIR}")
 endif()
 
-find_program(__FIND_DEBUGINFO find-debuginfo)
-mark_as_advanced(__FIND_DEBUGINFO)
+find_program(AWK gawk mawk nawk awk REQUIRED)
+mark_as_advanced(AWK)
+
+find_program(FIND_DEBUGINFO find-debuginfo)
+mark_as_advanced(FIND_DEBUGINFO)
 
 function(chkdef func req)
 	string(TOUPPER ${func} FUNC)
@@ -314,7 +349,7 @@ foreach(f ${OPTINCS})
 endforeach()
 
 function(id0name var file)
-	execute_process(COMMAND awk -F: "$3==0 {print $1;exit}" ${file}
+	execute_process(COMMAND ${AWK} -F: "$3==0 {print $1;exit}" ${file}
 			OUTPUT_STRIP_TRAILING_WHITESPACE
 			OUTPUT_VARIABLE name)
 	if ("${name}" STREQUAL "")
@@ -349,6 +384,7 @@ if (LIBDW_FOUND)
 	set(HAVE_LIBDW 1)
 endif()
 
+check_symbol_exists(GLOB_ONLYDIR "glob.h" HAVE_GLOB_ONLYDIR)
 check_symbol_exists(major "sys/sysmacros.h" MAJOR_IN_SYSMACROS)
 if (NOT MAJOR_IN_SYSMACROS)
 	check_symbol_exists(major "sys/mkdev.h" MAJOR_IN_MKDEV)
@@ -361,6 +397,20 @@ add_compile_definitions(HAVE_CONFIG_H)
 add_compile_options(-Wall -Wpointer-arith -Wmissing-prototypes -Wstrict-prototypes -Wempty-body)
 if (ENABLE_WERROR)
 	add_compile_options(-Werror)
+endif()
+
+if (ENABLE_ASAN)
+	add_compile_options(-fsanitize=address)
+	add_link_options(-fsanitize=address)
+endif()
+
+if (ENABLE_UBSAN)
+	add_compile_options(-fsanitize=undefined)
+	add_link_options(-fsanitize=undefined)
+endif()
+
+if (ENABLE_ASAN OR ENABLE_UBSAN)
+	add_compile_options(-fno-omit-frame-pointer)
 endif()
 
 # try to ensure some compiler sanity
@@ -420,7 +470,7 @@ install(FILES CONTRIBUTING.md COPYING CREDITS INSTALL README TYPE DOC)
 
 add_custom_target(ChangeLog
 		   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-		   COMMAND git log --no-merges
+		   COMMAND git log --no-merges --no-decorate
 				--output=${CMAKE_BINARY_DIR}/ChangeLog
 )
 
@@ -443,7 +493,6 @@ function(add_tarball targetname namever treeish)
 
 	add_custom_target(${distname}
 		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-		BYPRODUCTS ${distname} ${docname}
 		VERBATIM
 		DEPENDS ChangeLog ${docname} po/rpm.pot
 		COMMAND git archive

@@ -8,16 +8,34 @@ target_sources(librpmio PRIVATE
 	rpmstrpool.c rpmmacro_internal.h rpmlua.c rpmlua.h lposix.c
 )
 target_compile_definitions(librpmio PRIVATE RPM_CONFIGDIR="${RPM_CONFIGDIR}")
-target_include_directories(librpmio PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(librpmio PRIVATE
+	${CMAKE_CURRENT_SOURCE_DIR}
+	${Intl_INCLUDE_DIRS}
+)
 
-add_subdirectory(rpmpgp_legacy)
+if (EXISTS ${CMAKE_SOURCE_DIR}/rpmio/rpmpgp_legacy/CMakeLists.txt)
+	add_subdirectory(rpmpgp_legacy)
+endif()
 
-if (WITH_INTERNAL_OPENPGP)
-	target_link_libraries(librpmio PRIVATE rpmpgp_legacy)
-else()
+if (WITH_SEQUOIA)
 	pkg_check_modules(RPMSEQUOIA REQUIRED IMPORTED_TARGET rpm-sequoia>=1.4.0)
 	target_sources(librpmio PRIVATE rpmpgp_sequoia.c)
 	target_link_libraries(librpmio PRIVATE PkgConfig::RPMSEQUOIA)
+else()
+	if (WITH_LEGACY_OPENPGP)
+		target_link_libraries(librpmio PRIVATE rpmpgp_legacy)
+	else()
+		target_sources(librpmio PRIVATE rpmpgp_dummy.c)
+	endif()
+	if (WITH_OPENSSL)
+		find_package(OpenSSL 3.0.0 REQUIRED)
+		target_sources(librpmio PRIVATE digest_openssl.c)
+		target_link_libraries(librpmio PRIVATE OpenSSL::Crypto)
+	else()
+		pkg_check_modules(LIBGCRYPT REQUIRED IMPORTED_TARGET libgcrypt)
+		target_sources(librpmio PRIVATE digest_libgcrypt.c)
+		target_link_libraries(librpmio PRIVATE PkgConfig::LIBGCRYPT)
+	endif()
 endif()
 
 set_target_properties(librpmio PROPERTIES
@@ -25,9 +43,11 @@ set_target_properties(librpmio PROPERTIES
 	SOVERSION ${RPM_SOVERSION}
 )
 target_link_libraries(librpmio PRIVATE
-			PkgConfig::POPT
-			LUA::LUA
-			ZLIB::ZLIB)
+	PkgConfig::POPT
+	LUA::LUA
+	ZLIB::ZLIB
+	${Intl_LIBRARIES}
+)
 
 if (ZSTD_FOUND)
 	target_link_libraries(librpmio PRIVATE PkgConfig::ZSTD)

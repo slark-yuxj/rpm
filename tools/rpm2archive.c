@@ -16,6 +16,7 @@
 #include <archive_entry.h>
 #include <unistd.h>
 #include <errno.h>
+#include <libgen.h>
 
 #include "debug.h"
 
@@ -57,9 +58,9 @@ static void fill_archive_entry(struct archive_entry * entry, rpmfi fi,
 	archive_entry_set_symlink(entry, rpmfiFLink(fi));
 
     if (sb.st_nlink > 1) {
-	/* hardlink sizes are special, see rpmfiStat() */
-	archive_entry_set_size(entry, rpmfiFSize(fi));
 	if (rpmfiArchiveHasContent(fi)) {
+	    /* hardlink sizes are special, see rpmfiStat() */
+	    archive_entry_set_size(entry, rpmfiFSize(fi));
 	    _free(*hardlink);
 	    *hardlink = xstrdup(archive_entry_pathname(entry));
 	} else {
@@ -152,9 +153,6 @@ static int process_package(rpmts ts, const char * filename)
 	exit(EXIT_FAILURE);
     }
 
-    rpmfiles files = rpmfilesNew(NULL, h, 0, RPMFI_KEEPHEADER);
-    rpmfi fi = rpmfiNewArchiveReader(gzdi, files, RPMFI_ITER_READ_ARCHIVE_CONTENT_FIRST);
-
     /* create archive */
     a = archive_write_new();
     if (compress) {
@@ -213,6 +211,9 @@ static int process_package(rpmts ts, const char * filename)
     char * buf = xmalloc(BUFSIZE);
     char * hardlink = NULL;
 
+    rpmfiles files = rpmfilesNew(NULL, h, 0, RPMFI_KEEPHEADER);
+    rpmfi fi = rpmfiNewArchiveReader(gzdi, files, format_code == ARCHIVE_FORMAT_CPIO_SVR4_NOCRC ? RPMFI_ITER_READ_ARCHIVE : RPMFI_ITER_READ_ARCHIVE_CONTENT_FIRST);
+
     rc = 0;
     while (rc >= 0) {
 	rc = rpmfiNext(fi);
@@ -262,7 +263,7 @@ static int process_package(rpmts ts, const char * filename)
     return rc;
 }
 
-int main(int argc, const char *argv[])
+int main(int argc, char *argv[])
 {
     int rc = 0;
     poptContext optCon;
@@ -271,7 +272,7 @@ int main(int argc, const char *argv[])
     xsetprogname(argv[0]);	/* Portability call -- see system.h */
     rpmReadConfigFiles(NULL, NULL);
 
-    optCon = poptGetContext(NULL, argc, argv, optionsTable, 0);
+    optCon = poptGetContext(NULL, argc, (const char **)argv, optionsTable, 0);
     poptSetOtherOptionHelp(optCon, "[OPTIONS]* <FILES>");
 
     if (rstreq(basename(argv[0]), "rpm2cpio")) {

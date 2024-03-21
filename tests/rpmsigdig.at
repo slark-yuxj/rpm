@@ -156,38 +156,8 @@ RPMTEST_CLEANUP
 # Reproducably build and verify a package
 AT_SETUP([rpmkeys -Kv <unsigned> 2])
 AT_KEYWORDS([rpmkeys digest])
-RPMTEST_CHECK([
 RPMDB_INIT
-
-runroot rpmbuild -bb --quiet \
-	--define "optflags -O2 -g" \
-	--define "_target_platform noarch-linux" \
-	--define "_binary_payload w.ufdio" \
-	--define "_buildhost localhost" \
-	--define "use_source_date_epoch_as_buildtime 1" \
-	--define "source_date_epoch_from_changelog 1" \
-	--define "clamp_mtime_to_source_date_epoch 1" \
-	--define "_use_weak_usergroup_deps 0" \
-	/data/SPECS/attrtest.spec 
-for v in SHA256HEADER SHA1HEADER SIGMD5 PAYLOADDIGEST PAYLOADDIGESTALT; do
-    runroot rpm -q --qf "${v}: %{${v}}\n" /build/RPMS/noarch/attrtest-1.0-1.noarch.rpm
-done
-runroot rpmkeys -Kv /build/RPMS/noarch/attrtest-1.0-1.noarch.rpm
-],
-[0],
-[SHA256HEADER: 8ab715bef152a18bef62df29805b9d1b8f2c5d92955a1a7fa2491967cc17c035
-SHA1HEADER: 7a8ad9bdb9b0910fa54724f7bdac8ac49d992d2f
-SIGMD5: 87da99d1993240e2d698f5b3dbcbd44c
-PAYLOADDIGEST: 116ce41ebb72f1877cda3d7dedaf5b78770e202d6389ade4e415d78548d703a8
-PAYLOADDIGESTALT: 116ce41ebb72f1877cda3d7dedaf5b78770e202d6389ade4e415d78548d703a8
-/build/RPMS/noarch/attrtest-1.0-1.noarch.rpm:
-    Header SHA256 digest: OK
-    Header SHA1 digest: OK
-    Payload SHA256 ALT digest: OK
-    Payload SHA256 digest: OK
-    MD5 digest: OK
-],
-[])
+RPMTEST_CHECK_PINNED([rpmsigdig])
 RPMTEST_CLEANUP
 
 # ------------------------------
@@ -202,6 +172,7 @@ RPMTEST_CLEANUP
 # when the key is imported; other implementations should not do this.
 AT_SETUP([rpmkeys --import rsa (rpmdb)])
 AT_KEYWORDS([rpmkeys import])
+AT_SKIP_IF([test x$PGP = xdummy])
 RPMTEST_CHECK_UNQUOTED([
 RPMDB_INIT
 
@@ -266,6 +237,7 @@ RPMTEST_CLEANUP
 
 AT_SETUP([rpmkeys --import rsa (fs)])
 AT_KEYWORDS([rpmkeys import])
+AT_SKIP_IF([test x$PGP = xdummy])
 RPMTEST_CHECK([
 RPMDB_INIT
 
@@ -317,6 +289,7 @@ RPMTEST_CLEANUP
 # does not support.
 AT_SETUP([rpmkeys --import, signed with a good subkey])
 AT_KEYWORDS([rpmkeys digest signature])
+AT_SKIP_IF([test x$PGP = xdummy])
 AT_SKIP_IF([test x$PGP = xinternal])
 RPMTEST_CHECK([
 RPMDB_INIT
@@ -382,6 +355,7 @@ RPMTEST_CLEANUP
 # Note: the internal PGP implementation does not support expiry.
 AT_SETUP([rpmkeys --import, signed with an expired subkey])
 AT_KEYWORDS([rpmkeys digest signature])
+AT_SKIP_IF([test x$PGP = xdummy])
 AT_SKIP_IF([test x$PGP = xinternal])
 RPMTEST_CHECK([
 RPMDB_INIT
@@ -457,6 +431,7 @@ RPMTEST_CLEANUP
 # Note: the internal PGP implementation does not support revoked subkeys.
 AT_SETUP([rpmkeys --import, signed with a revoked subkey])
 AT_KEYWORDS([rpmkeys digest signature])
+AT_SKIP_IF([test x$PGP = xdummy])
 AT_SKIP_IF([test x$PGP = xinternal])
 RPMTEST_CHECK([
 RPMDB_INIT
@@ -525,6 +500,7 @@ RPMTEST_CLEANUP
 
 AT_SETUP([rpmkeys --import invalid keys])
 AT_KEYWORDS([rpmkeys import])
+AT_SKIP_IF([test x$PGP = xdummy])
 RPMDB_INIT
 
 # The following certificates include subkeys with errors.  In general,
@@ -589,6 +565,7 @@ RPMTEST_CLEANUP
 # instead of the key's creation time.
 AT_SETUP([rpmkeys --import different-creation-times])
 AT_KEYWORDS([rpmkeys import])
+AT_SKIP_IF([test x$PGP = xdummy])
 RPMDB_INIT
 RPMTEST_CHECK([
 runroot rpmkeys --import /data/keys/different-creation-times.asc
@@ -660,6 +637,7 @@ RPMTEST_CLEANUP
 # Test pre-built package verification
 AT_SETUP([rpmkeys -K <signed> 1])
 AT_KEYWORDS([rpmkeys digest signature])
+AT_SKIP_IF([test x$PGP = xdummy])
 RPMTEST_CHECK([
 RPMDB_INIT
 
@@ -678,6 +656,7 @@ RPMTEST_CLEANUP
 # Test pre-built package verification
 AT_SETUP([rpmkeys -Kv <signed> 1])
 AT_KEYWORDS([rpmkeys digest signature])
+AT_SKIP_IF([test x$PGP = xdummy])
 RPMTEST_CHECK([
 RPMDB_INIT
 
@@ -753,6 +732,7 @@ RPMTEST_CLEANUP
 # Test pre-built corrupted package verification (corrupted signature)
 AT_SETUP([rpmkeys -Kv <corrupted signed> 1])
 AT_KEYWORDS([rpmkeys digest signature])
+AT_SKIP_IF([test x$PGP = xdummy])
 RPMTEST_CHECK_UNQUOTED([
 RPMDB_INIT
 
@@ -802,6 +782,7 @@ RPMTEST_CLEANUP
 # Test pre-built corrupted package verification (corrupted header)
 AT_SETUP([rpmkeys -Kv <corrupted signed> 2.1])
 AT_KEYWORDS([rpmkeys digest signature])
+AT_SKIP_IF([test x$PGP = xdummy])
 RPMTEST_CHECK([
 RPMDB_INIT
 
@@ -836,6 +817,7 @@ RPMTEST_CLEANUP
 # Test pre-built corrupted package verification (corrupted header)
 AT_SETUP([rpmkeys -Kv <corrupted signed> 2.2])
 AT_KEYWORDS([rpmkeys digest signature])
+AT_SKIP_IF([test x$PGP = xdummy])
 RPMTEST_CHECK([
 RPMDB_INIT
 
@@ -871,6 +853,7 @@ RPMTEST_CLEANUP
 # Test pre-built corrupted package verification (corrupted payload)
 AT_SETUP([rpmkeys -Kv <corrupted signed> 3])
 AT_KEYWORDS([rpmkeys digest signature])
+AT_SKIP_IF([test x$PGP = xdummy])
 RPMTEST_CHECK([
 RPMDB_INIT
 
@@ -909,6 +892,7 @@ RPMTEST_CLEANUP
 # Test pre-built corrupted package verification (corrupted payload)
 AT_SETUP([rpmkeys -Kv <corrupted signed> 4])
 AT_KEYWORDS([rpmkeys digest signature])
+AT_SKIP_IF([test x$PGP = xdummy])
 RPMTEST_CHECK([
 RPMDB_INIT[(
 
@@ -948,6 +932,7 @@ RPMTEST_CLEANUP
 # Test --addsign
 AT_SETUP([rpmsign --addsign])
 AT_KEYWORDS([rpmsign signature])
+AT_SKIP_IF([test x$PGP = xdummy])
 RPMDB_INIT
 gpg2 --import ${RPMTEST}/data/keys/*.secret
 # Our keys have no passphrases to be asked, silence GPG_TTY warning
@@ -1071,6 +1056,7 @@ RPMTEST_CLEANUP
 # Test --delsign
 AT_SETUP([rpmsign --delsign])
 AT_KEYWORDS([rpmsign signature])
+AT_SKIP_IF([test x$PGP = xdummy])
 RPMTEST_CHECK([
 RPMDB_INIT
 
@@ -1090,4 +1076,25 @@ POST-DELSIGN
 /tmp/hello-2.0-1.x86_64-signed.rpm:
 ],
 [])
+RPMTEST_CLEANUP
+
+AT_SETUP([without openpgp])
+AT_KEYWORDS([dummy])
+AT_SKIP_IF([test x$PGP != xdummy])
+RPMTEST_CHECK([
+runroot rpmkeys --import /data/keys/rpm.org-rsa-2048-test.pub
+],
+[1],
+[],
+[error: /data/keys/rpm.org-rsa-2048-test.pub: key 1 not an armored public key.
+])
+
+RPMTEST_CHECK([
+runroot rpm -qp /data/RPMS/hello-2.0-1.x86_64-signed.rpm
+],
+[1],
+[],
+[error: /data/RPMS/hello-2.0-1.x86_64-signed.rpm: Header RSA signature: BAD (package tag 268: invalid OpenPGP signature: RPM was compiled without OpenPGP support)
+error: /data/RPMS/hello-2.0-1.x86_64-signed.rpm: not an rpm package (or package manifest)
+])
 RPMTEST_CLEANUP

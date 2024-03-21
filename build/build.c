@@ -19,7 +19,6 @@
 #include <rpm/rpmfileutil.h>
 #include "rpmbuild_internal.h"
 #include "rpmbuild_misc.h"
-#include "rpmug.h"
 
 #include "debug.h"
 
@@ -29,6 +28,7 @@ static rpm_time_t getBuildTime(void)
     char *srcdate;
     time_t epoch;
     char *endptr;
+    char *timestr = NULL;
 
     srcdate = getenv("SOURCE_DATE_EPOCH");
     if (srcdate && rpmExpandNumeric("%{?use_source_date_epoch_as_buildtime}")) {
@@ -37,9 +37,13 @@ static rpm_time_t getBuildTime(void)
         if (srcdate == endptr || *endptr || errno != 0)
             rpmlog(RPMLOG_ERR, _("unable to parse SOURCE_DATE_EPOCH\n"));
         else
-            buildTime = (int32_t) epoch;
+            buildTime = (uint32_t) epoch;
     } else
-        buildTime = (int32_t) time(NULL);
+        buildTime = (uint32_t) time(NULL);
+
+    rasprintf(&timestr, "%u", buildTime);
+    setenv("RPM_BUILD_TIME", timestr, 1);
+    free(timestr);
 
     return buildTime;
 }
@@ -74,7 +78,7 @@ static char * buildHost(void)
 
 /**
  */
-static rpmRC doRmSource(rpmSpec spec)
+static int doRmSource(rpmSpec spec)
 {
     struct Source *p;
     Package pkg;
@@ -96,7 +100,7 @@ static rpmRC doRmSource(rpmSpec spec)
 	}
     }
 exit:
-    return !rc ? 0 : 1;
+    return rc;
 }
 
 /*
@@ -106,7 +110,7 @@ rpmRC doScript(rpmSpec spec, rpmBuildFlags what, const char *name,
 	       const char *sb, int test, StringBuf * sb_stdoutp)
 {
     char *scriptName = NULL;
-    char * buildDir = rpmGenPath(spec->rootDir, "%{_builddir}", "");
+    char * buildDir = rpmGenPath(spec->rootDir, "%{builddir}", "");
     char * buildSubdir = rpmGetPath("%{?buildsubdir}", NULL);
     char * buildCmd = NULL;
     char * buildTemplate = NULL;
@@ -122,6 +126,10 @@ rpmRC doScript(rpmSpec spec, rpmBuildFlags what, const char *name,
     rpmRC rc = RPMRC_FAIL; /* assume failure */
     
     switch (what) {
+    case RPMBUILD_MKBUILDDIR:
+	mTemplate = "%{__spec_builddir_template}";
+	mPost = "%{__spec_builddir_post}";
+	mCmd = "%{__spec_builddir_cmd}";
     case RPMBUILD_PREP:
 	mTemplate = "%{__spec_prep_template}";
 	mPost = "%{__spec_prep_post}";
@@ -191,18 +199,11 @@ rpmRC doScript(rpmSpec spec, rpmBuildFlags what, const char *name,
 
     (void) fputs(buildTemplate, fp);
 
-    if (what != RPMBUILD_PREP && what != RPMBUILD_RMBUILD && buildSubdir[0] != '\0')
+    if (what != RPMBUILD_MKBUILDDIR && what != RPMBUILD_PREP && what != RPMBUILD_RMBUILD && buildSubdir[0] != '\0')
 	fprintf(fp, "cd '%s'\n", buildSubdir);
 
     if (what == RPMBUILD_RMBUILD) {
-	if (rpmMacroIsDefined(spec->macros, "specpartsdir")) {
-	    char * buf = rpmExpand("%{specpartsdir}", NULL);
-	    fprintf(fp, "rm -rf '%s'\n", buf);
-	    free(buf);
-	}
-	if (buildSubdir[0] != '\0')
-	    fprintf(fp, "rm -rf '%s' '%s.gemspec'\n",
-		    buildSubdir, buildSubdir);
+	fprintf(fp, "rm -rf '%s'\n", spec->buildDir);
     } else if (sb != NULL)
 	fprintf(fp, "%s", sb);
 
@@ -252,18 +253,19 @@ exit:
 static int doBuildRequires(rpmSpec spec, int test)
 {
     StringBuf sb_stdout = NULL;
+    const char *buildrequires = rpmSpecGetSection(spec, RPMBUILD_BUILDREQUIRES);
     int outc;
     ARGV_t output = NULL;
 
     int rc = 1; /* assume failure */
 
-    if (!spec->buildrequires) {
+    if (!buildrequires) {
 	rc = RPMRC_OK;
 	goto exit;
     }
 
     if ((rc = doScript(spec, RPMBUILD_BUILDREQUIRES, "%generate_buildrequires",
-		       getStringBuf(spec->buildrequires), test, &sb_stdout)))
+		       buildrequires, test, &sb_stdout)))
 	goto exit;
 
     /* add results to requires of the srpm */
@@ -288,9 +290,9 @@ static int doBuildRequires(rpmSpec spec, int test)
     return rc;
 }
 
-static rpmRC doCheckBuildRequires(rpmts ts, rpmSpec spec, int test)
+static int doCheckBuildRequires(rpmts ts, rpmSpec spec, int test)
 {
-    rpmRC rc = RPMRC_OK;
+    int rc = RPMRC_OK;
     rpmps ps = rpmSpecCheckDeps(ts, spec);
 
     if (ps) {
@@ -303,9 +305,27 @@ static rpmRC doCheckBuildRequires(rpmts ts, rpmSpec spec, int test)
     return rc;
 }
 
-static rpmRC buildSpec(rpmts ts, BTA_t buildArgs, rpmSpec spec, int what)
+static rpmRC doBuildDir(rpmSpec spec, int test, StringBuf *sbp)
 {
-    rpmRC rc = RPMRC_OK;
+    char *doDir = rstrscat(NULL,
+			   "rm -rf '", spec->buildDir, "'\n",
+			   "mkdir -p '", spec->buildDir, "'\n",
+			   NULL);
+
+    rpmRC rc = doScript(spec, RPMBUILD_MKBUILDDIR, "%mkbuilddir",
+			doDir, test, sbp);
+    if (rc) {
+	rpmlog(RPMLOG_ERR,
+		_("failed to create package build directory %s: %s\n"),
+		spec->buildDir, strerror(errno));
+    }
+    free(doDir);
+    return rc;
+}
+
+static int buildSpec(rpmts ts, BTA_t buildArgs, rpmSpec spec, int what)
+{
+    int rc = RPMRC_OK;
     int missing_buildreqs = 0;
     int test = (what & RPMBUILD_NOBUILD);
     char *cookie = buildArgs->cookie ? xstrdup(buildArgs->cookie) : NULL;
@@ -342,8 +362,8 @@ static rpmRC buildSpec(rpmts ts, BTA_t buildArgs, rpmSpec spec, int what)
 	    setenv("SOURCE_DATE_EPOCH", sdestr, 0);
 	    rpmtdFreeData(&td);
 	} else {
-	    rpmlog(RPMLOG_WARNING, _("source_date_epoch_from_changelog set but "
-	        "%%changelog is missing\n"));
+	    rpmlog(RPMLOG_WARNING, _("%%source_date_epoch_from_changelog is set, but "
+	        "%%changelog has no entries to take a date from\n"));
 	}
     }
 
@@ -369,19 +389,23 @@ static rpmRC buildSpec(rpmts ts, BTA_t buildArgs, rpmSpec spec, int what)
 	int sourceOnly = ((what & RPMBUILD_PACKAGESOURCE) &&
 	   !(what & (RPMBUILD_CONF|RPMBUILD_BUILD|RPMBUILD_INSTALL|RPMBUILD_PACKAGEBINARY)));
 
-	if (!spec->buildrequires && sourceOnly) {
+	if (!rpmSpecGetSection(spec, RPMBUILD_BUILDREQUIRES) && sourceOnly) {
 		/* don't run prep if not needed for source build */
 		/* with(out) dynamic build requires*/
-	    what &= ~(RPMBUILD_PREP);
+	    what &= ~(RPMBUILD_PREP|RPMBUILD_MKBUILDDIR);
 	}
 
 	if ((what & RPMBUILD_CHECKBUILDREQUIRES) &&
 	    (rc = doCheckBuildRequires(ts, spec, test)))
 		goto exit;
 
+	if ((what & RPMBUILD_MKBUILDDIR) && (rc = doBuildDir(spec, test, sbp)))
+		goto exit;
+
 	if ((what & RPMBUILD_PREP) &&
 	    (rc = doScript(spec, RPMBUILD_PREP, "%prep",
-			   getStringBuf(spec->prep), test, sbp)))
+			   rpmSpecGetSection(spec, RPMBUILD_PREP),
+			   test, sbp)))
 		goto exit;
 
 	if (what & RPMBUILD_BUILDREQUIRES)
@@ -410,17 +434,20 @@ static rpmRC buildSpec(rpmts ts, BTA_t buildArgs, rpmSpec spec, int what)
 
 	if ((what & RPMBUILD_CONF) &&
 	    (rc = doScript(spec, RPMBUILD_BUILD, "%conf",
-			   getStringBuf(spec->conf), test, sbp)))
+			   rpmSpecGetSection(spec, RPMBUILD_CONF),
+			   test, sbp)))
 		goto exit;
 
 	if ((what & RPMBUILD_BUILD) &&
 	    (rc = doScript(spec, RPMBUILD_BUILD, "%build",
-			   getStringBuf(spec->build), test, sbp)))
+			   rpmSpecGetSection(spec, RPMBUILD_BUILD),
+			   test, sbp)))
 		goto exit;
 
 	if ((what & RPMBUILD_INSTALL) &&
 	    (rc = doScript(spec, RPMBUILD_INSTALL, "%install",
-			   getStringBuf(spec->install), test, sbp)))
+			   rpmSpecGetSection(spec, RPMBUILD_INSTALL),
+			   test, sbp)))
 		goto exit;
 
 	if (((what & RPMBUILD_INSTALL) || (what & RPMBUILD_PACKAGEBINARY)) &&
@@ -429,7 +456,8 @@ static rpmRC buildSpec(rpmts ts, BTA_t buildArgs, rpmSpec spec, int what)
 
 	if ((what & RPMBUILD_CHECK) &&
 	    (rc = doScript(spec, RPMBUILD_CHECK, "%check",
-			   getStringBuf(spec->check), test, sbp)))
+			   rpmSpecGetSection(spec, RPMBUILD_CHECK),
+			   test, sbp)))
 		goto exit;
 
 	if ((what & RPMBUILD_PACKAGESOURCE) &&
@@ -456,7 +484,8 @@ static rpmRC buildSpec(rpmts ts, BTA_t buildArgs, rpmSpec spec, int what)
 	
 	if ((what & RPMBUILD_CLEAN) &&
 	    (rc = doScript(spec, RPMBUILD_CLEAN, "%clean",
-			   getStringBuf(spec->clean), test, sbp)))
+			   rpmSpecGetSection(spec, RPMBUILD_CLEAN),
+			   test, sbp)))
 		goto exit;
 
 	if ((what & RPMBUILD_RMBUILD) &&
@@ -496,7 +525,6 @@ exit:
 	}
     }
 
-    rpmugFree();
     if (missing_buildreqs && !rc) {
 	rc = RPMRC_MISSINGBUILDREQUIRES;
     }

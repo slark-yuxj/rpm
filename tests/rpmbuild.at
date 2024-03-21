@@ -44,6 +44,58 @@ GPL
 [])
 RPMTEST_CLEANUP
 
+AT_SETUP([rpmbuild -b buildsystem])
+AT_KEYWORDS([build])
+RPMDB_INIT
+
+cp "${RPMTEST}/data/macros.buildsystem" "${RPMTEST}/${RPM_CONFIGDIR_PATH}/macros.d/"
+
+RPMTEST_CHECK([
+runroot rpmbuild -bb \
+	--define "_prefix /usr" \
+	--define "_docdir_fmt %%{NAME}" \
+	--quiet /data/SPECS/amhello.spec
+
+runroot rpm -qpl --noartifact /build/RPMS/*/amhello-1.0-1.*.rpm
+],
+[0],
+[/usr/bin/hello
+/usr/share/doc/amhello
+/usr/share/doc/amhello/README
+/usr/share/doc/amhello/README.distro
+],
+[ignore])
+
+RPMTEST_CHECK([
+runroot rpmbuild -bb \
+	--define "_prefix /usr" \
+	--define "_docdir_fmt %%{NAME}" \
+	--with alt \
+	--quiet /data/SPECS/amhello.spec
+
+runroot rpm -qpl --noartifact /build/RPMS/*/amhello-1.0-1alt.*.rpm
+],
+[0],
+[/alt/usr/bin/alt-hello
+/alt/usr/share/doc/amhello
+/alt/usr/share/doc/amhello/README
+/usr/share/doc/amhello
+/usr/share/doc/amhello/README.distro
+],
+[ignore])
+
+RPMTEST_CHECK([
+runroot rpmbuild -bb \
+	--define "buildsys bogons" \
+	--quiet /data/SPECS/amhello.spec
+],
+[1],
+[],
+[error: line 10: Unknown buildsystem: bogons
+])
+
+RPMTEST_CLEANUP
+
 AT_SETUP([rpmbuild -b steps])
 AT_KEYWORDS([build])
 RPMDB_INIT
@@ -51,7 +103,8 @@ RPMTEST_CHECK([
 runroot rpmbuild -bp /data/SPECS/specstep.spec 2>&1|grep ^Executing|cut -d: -f1
 ],
 [0],
-[Executing(%prep)
+[Executing(%mkbuilddir)
+Executing(%prep)
 ],
 [])
 
@@ -67,7 +120,8 @@ RPMTEST_CHECK([
 runroot rpmbuild -br /data/SPECS/specstep.spec 2>&1|grep ^Executing|cut -d: -f1
 ],
 [0],
-[Executing(%prep)
+[Executing(%mkbuilddir)
+Executing(%prep)
 Executing(%generate_buildrequires)
 ],
 [])
@@ -76,7 +130,8 @@ RPMTEST_CHECK([
 runroot rpmbuild -bd /data/SPECS/specstep.spec 2>&1|grep ^Executing|cut -d: -f1
 ],
 [0],
-[Executing(%prep)
+[Executing(%mkbuilddir)
+Executing(%prep)
 Executing(%generate_buildrequires)
 ],
 [])
@@ -85,7 +140,8 @@ RPMTEST_CHECK([
 runroot rpmbuild -bf /data/SPECS/specstep.spec 2>&1|grep ^Executing|cut -d: -f1
 ],
 [0],
-[Executing(%prep)
+[Executing(%mkbuilddir)
+Executing(%prep)
 Executing(%generate_buildrequires)
 Executing(%conf)
 ],
@@ -94,7 +150,8 @@ RPMTEST_CHECK([
 runroot rpmbuild -bc /data/SPECS/specstep.spec 2>&1|grep ^Executing|cut -d: -f1
 ],
 [0],
-[Executing(%prep)
+[Executing(%mkbuilddir)
+Executing(%prep)
 Executing(%generate_buildrequires)
 Executing(%conf)
 Executing(%build)
@@ -105,7 +162,8 @@ RPMTEST_CHECK([
 runroot rpmbuild -bi /data/SPECS/specstep.spec 2>&1|grep ^Executing|cut -d: -f1
 ],
 [0],
-[Executing(%prep)
+[Executing(%mkbuilddir)
+Executing(%prep)
 Executing(%generate_buildrequires)
 Executing(%conf)
 Executing(%build)
@@ -118,7 +176,8 @@ RPMTEST_CHECK([
 runroot rpmbuild -bb /data/SPECS/specstep.spec 2>&1|grep ^Executing|cut -d: -f1
 ],
 [0],
-[Executing(%prep)
+[Executing(%mkbuilddir)
+Executing(%prep)
 Executing(%generate_buildrequires)
 Executing(%conf)
 Executing(%build)
@@ -133,7 +192,8 @@ RPMTEST_CHECK([
 runroot rpmbuild -ba /data/SPECS/specstep.spec 2>&1|grep ^Executing|cut -d: -f1
 ],
 [0],
-[Executing(%prep)
+[Executing(%mkbuilddir)
+Executing(%prep)
 Executing(%generate_buildrequires)
 Executing(%conf)
 Executing(%build)
@@ -170,6 +230,51 @@ DDD
 [])
 RPMTEST_CLEANUP
 
+AT_SETUP([rpmbuild dir layout])
+AT_KEYWORDS([build])
+RPMDB_INIT
+RPMTEST_CHECK([
+run rpmbuild \
+	-bi --target noarch --quiet \
+	${RPMDATA}/SPECS/simple.spec
+runroot_other find /build/BUILD|sort
+],
+[0],
+[/build/BUILD
+/build/BUILD/simple-1.0-noarch
+/build/BUILD/simple-1.0-noarch/BUILDROOT
+/build/BUILD/simple-1.0-noarch/BUILDROOT/opt
+/build/BUILD/simple-1.0-noarch/BUILDROOT/opt/bin
+/build/BUILD/simple-1.0-noarch/BUILDROOT/opt/bin/simple
+/build/BUILD/simple-1.0-noarch/simple
+],
+[ignore])
+
+RPMTEST_CHECK([
+run rpmbuild \
+	-bi --target noarch --quiet \
+	--with setup \
+	${RPMDATA}/SPECS/simple.spec
+runroot_other find /build/BUILD|sort
+],
+[0],
+[/build/BUILD
+/build/BUILD/simple-1.0-noarch
+/build/BUILD/simple-1.0-noarch/BUILDROOT
+/build/BUILD/simple-1.0-noarch/BUILDROOT/opt
+/build/BUILD/simple-1.0-noarch/BUILDROOT/opt/bin
+/build/BUILD/simple-1.0-noarch/BUILDROOT/opt/bin/simple
+/build/BUILD/simple-1.0-noarch/SPECPARTS
+/build/BUILD/simple-1.0-noarch/simple-1.0
+/build/BUILD/simple-1.0-noarch/simple-1.0/dir1
+/build/BUILD/simple-1.0-noarch/simple-1.0/dir1/file3
+/build/BUILD/simple-1.0-noarch/simple-1.0/file1
+/build/BUILD/simple-1.0-noarch/simple-1.0/file2
+/build/BUILD/simple-1.0-noarch/simple-1.0/simple
+],
+[ignore])
+RPMTEST_CLEANUP
+
 AT_SETUP([rpmbuild -ba autosetup])
 AT_KEYWORDS([build])
 RPMDB_INIT
@@ -177,6 +282,28 @@ RPMTEST_CHECK([
 
 run rpmbuild \
   -ba ${RPMDATA}/SPECS/hello-auto.spec
+],
+[0],
+[ignore],
+[ignore])
+RPMTEST_CLEANUP
+
+AT_SETUP([rpmbuild with %autosetup -C])
+AT_KEYWORDS([build])
+RPMDB_INIT
+RPMTEST_CHECK([
+
+run rpmbuild \
+  -bp ${RPMDATA}/SPECS/autosetup-noroot.spec
+],
+[0],
+[ignore],
+[ignore])
+
+RPMTEST_CHECK([
+
+run rpmbuild \
+  -bp ${RPMDATA}/SPECS/autosetup-singleroot.spec
 ],
 [0],
 [ignore],
@@ -772,21 +899,23 @@ RPMDB_INIT
 runroot rpmbuild -bb --quiet \
 	--define "pkg weakdeps" \
 	--define "recs foo > 1.2.3" \
+	--define "recflags post" \
 	--define "sugs bar >= 0.1.2" \
 	--define "sups baz" \
+	--define "supflags preun" \
 	--define "ens zap = 3" \
 	  /data/SPECS/deptest.spec
 
-runroot rpm -qp --recommends /build/RPMS/noarch/deptest-weakdeps-1.0-1.noarch.rpm
-runroot rpm -qp --suggests /build/RPMS/noarch/deptest-weakdeps-1.0-1.noarch.rpm
-runroot rpm -qp --supplements /build/RPMS/noarch/deptest-weakdeps-1.0-1.noarch.rpm
-runroot rpm -qp --enhances /build/RPMS/noarch/deptest-weakdeps-1.0-1.noarch.rpm
+runroot rpm -qpv --recommends /build/RPMS/noarch/deptest-weakdeps-1.0-1.noarch.rpm
+runroot rpm -qpv --suggests /build/RPMS/noarch/deptest-weakdeps-1.0-1.noarch.rpm
+runroot rpm -qpv --supplements /build/RPMS/noarch/deptest-weakdeps-1.0-1.noarch.rpm
+runroot rpm -qpv --enhances /build/RPMS/noarch/deptest-weakdeps-1.0-1.noarch.rpm
 ],
 [0],
-[foo > 1.2.3
-bar >= 0.1.2
-baz
-zap = 3
+[post: foo > 1.2.3
+manual: bar >= 0.1.2
+preun: baz
+manual: zap = 3
 ],
 [ignore])
 RPMTEST_CLEANUP
@@ -928,6 +1057,58 @@ runroot rpm -qp --requires /build/RPMS/noarch/shebang-0.1-1.noarch.rpm|grep -v ^
 ],
 [0],
 [/bin/blabla
+],
+[])
+RPMTEST_CLEANUP
+
+AT_SETUP([Local dependency generator])
+AT_KEYWORDS([build])
+RPMTEST_CHECK([
+RPMDB_INIT
+
+runroot rpmbuild -bb --quiet \
+		--define '_local_file_attrs my_test_attr' \
+		--define '__my_test_attr_provides() foo(%{basename:%{1}})' \
+		--define '__my_test_attr_path .*' \
+		/data/SPECS/shebang.spec
+runroot rpm -qp --provides /build/RPMS/noarch/shebang-0.1-1.noarch.rpm|grep -v ^rpmlib
+],
+[0],
+[foo(shebang)
+shebang = 0.1-1
+],
+[])
+
+RPMTEST_CHECK([
+RPMDB_INIT
+
+runroot rpmbuild -bb --quiet \
+		--define '_local_file_attrs script' \
+		--define '__script_provides() foobar(%{basename:%{1}})' \
+		/data/SPECS/shebang.spec
+runroot rpm -qp --provides /build/RPMS/noarch/shebang-0.1-1.noarch.rpm|grep -v ^rpmlib
+],
+[0],
+[foobar(shebang)
+shebang = 0.1-1
+],
+[])
+
+RPMTEST_CHECK([
+RPMDB_INIT
+
+runroot rpmbuild -bb --quiet \
+		--define '_local_file_attrs my_test_attr:script' \
+		--define '__my_test_attr_provides() foo(%{basename:%{1}})' \
+		--define '__my_test_attr_path .*' \
+		--define '__script_provides() foobar(%{basename:%{1}})' \
+		/data/SPECS/shebang.spec
+runroot rpm -qp --provides /build/RPMS/noarch/shebang-0.1-1.noarch.rpm|grep -v ^rpmlib
+],
+[0],
+[foo(shebang)
+foobar(shebang)
+shebang = 0.1-1
 ],
 [])
 RPMTEST_CLEANUP
@@ -2181,17 +2362,17 @@ runroot rpmbuild -bb --quiet /data/SPECS/filemiss.spec
 ],
 [1],
 [],
-[error: File not found: /build/BUILDROOT/filemisstest-1.0-1.x86_64/opt/share/doc/filemisstest-1.0/CREDITS
-error: File not found: /build/BUILDROOT/filemisstest-1.0-1.x86_64/opt/foo
-error: File not found: /build/BUILDROOT/filemisstest-1.0-1.x86_64/opt/bar{a,b}
-cp: cannot stat '/build/BUILD/INSTALL': No such file or directory
-cp: cannot stat '/build/BUILD/README*': No such file or directory
-error: File not found: /build/BUILDROOT/filemisstest-1.0-1.x86_64/opt/share/doc/filemisstest-1.0/INSTALL
-error: File not found: /build/BUILDROOT/filemisstest-1.0-1.x86_64/opt/share/doc/filemisstest-1.0/README*
-cp: cannot stat '/build/BUILD/LICENSE': No such file or directory
-cp: cannot stat '/build/BUILD/OTHERLICENSE?': No such file or directory
-error: File not found: /build/BUILDROOT/filemisstest-1.0-1.x86_64/opt/share/licenses/filemisstest-1.0/LICENSE
-error: File not found: /build/BUILDROOT/filemisstest-1.0-1.x86_64/opt/share/licenses/filemisstest-1.0/OTHERLICENSE?
+[error: File not found: /build/BUILD/filemisstest-1.0-x86_64/BUILDROOT/opt/share/doc/filemisstest-1.0/CREDITS
+error: File not found: /build/BUILD/filemisstest-1.0-x86_64/BUILDROOT/opt/foo
+error: File not found: /build/BUILD/filemisstest-1.0-x86_64/BUILDROOT/opt/bar{a,b}
+cp: cannot stat '/build/BUILD/filemisstest-1.0-x86_64/INSTALL': No such file or directory
+cp: cannot stat '/build/BUILD/filemisstest-1.0-x86_64/README*': No such file or directory
+error: File not found: /build/BUILD/filemisstest-1.0-x86_64/BUILDROOT/opt/share/doc/filemisstest-1.0/INSTALL
+error: File not found: /build/BUILD/filemisstest-1.0-x86_64/BUILDROOT/opt/share/doc/filemisstest-1.0/README*
+cp: cannot stat '/build/BUILD/filemisstest-1.0-x86_64/LICENSE': No such file or directory
+cp: cannot stat '/build/BUILD/filemisstest-1.0-x86_64/OTHERLICENSE?': No such file or directory
+error: File not found: /build/BUILD/filemisstest-1.0-x86_64/BUILDROOT/opt/share/licenses/filemisstest-1.0/LICENSE
+error: File not found: /build/BUILD/filemisstest-1.0-x86_64/BUILDROOT/opt/share/licenses/filemisstest-1.0/OTHERLICENSE?
 ],
 )
 RPMTEST_CLEANUP
@@ -2375,7 +2556,7 @@ runroot rpm -q --provides -p /build/RPMS/noarch/bcondtest-1.0-1.noarch.rpm |
 [],
 [])
 
-# bcond behavior, CLI overriding a complex defailt
+# bcond behavior, CLI overriding a complex default
 RPMTEST_CHECK([
 runroot rpmbuild -bb --quiet --with both_features /data/SPECS/bcondtest.spec
 runroot rpm -q --provides -p /build/RPMS/noarch/bcondtest-1.0-1.noarch.rpm |
@@ -2384,6 +2565,101 @@ runroot rpm -q --provides -p /build/RPMS/noarch/bcondtest-1.0-1.noarch.rpm |
 [0],
 [has_bcond(both_features)
 has_bcond(normally_on)
+],
+[])
+RPMTEST_CLEANUP
+
+AT_SETUP([bcond_override_default macros])
+AT_KEYWORDS([bcond build])
+RPMDB_INIT
+
+# check bcond_override_default by defining
+RPMTEST_CHECK([
+runroot rpm \
+	--eval "%bcond_override_default normally_on 0" \
+	--eval "%bcond_override_default normally_off 1" \
+	--eval "%bcond normally_on 1" \
+	--eval "%bcond normally_off 0" \
+	--eval "%{with normally_on}" \
+	--eval "%{with normally_off}" \
+],
+[0],
+[
+
+
+
+0
+1
+],
+[])
+
+# check bcond_override_default via helper macro
+RPMTEST_CHECK([
+runroot rpm \
+	-D "%bcond_override_default_normally_on 0" \
+	-D "%bcond_override_default_normally_off 1" \
+	--eval "%bcond normally_on 1" \
+	--eval "%bcond normally_off 0" \
+	--eval "%{with normally_on}" \
+	--eval "%{with normally_off}" \
+],
+[0],
+[
+
+0
+1
+],
+[])
+
+# check bcond_override_default via macro file
+
+# bcond behavior, without CLI options
+RPMTEST_CHECK([
+echo '%bcond_override_default_normally_on 0' > ${RPMTEST}/${RPM_CONFIGDIR_PATH}/macros.d/macros.bcondtests
+echo '%bcond_override_default_normally_off 1' >> ${RPMTEST}/${RPM_CONFIGDIR_PATH}/macros.d/macros.bcondtests
+runroot rpmbuild -bb --quiet /data/SPECS/bcondtest.spec
+runroot rpm -q --provides -p /build/RPMS/noarch/bcondtest-1.0-1.noarch.rpm |
+    grep has_bcond | sort
+],
+[0],
+[has_bcond(normally_off)
+],
+[])
+
+# bcond behavior, --with
+RPMTEST_CHECK([
+runroot rpmbuild -bb --quiet --with normally_on --with normally_off \
+    /data/SPECS/bcondtest.spec
+runroot rpm -q --provides -p /build/RPMS/noarch/bcondtest-1.0-1.noarch.rpm |
+    grep has_bcond | sort
+],
+[0],
+[has_bcond(both_features)
+has_bcond(normally_off)
+has_bcond(normally_on)
+],
+[])
+
+# bcond behavior, --without
+RPMTEST_CHECK([
+runroot rpmbuild -bb --quiet --without normally_on --without normally_off \
+    /data/SPECS/bcondtest.spec
+runroot rpm -q --provides -p /build/RPMS/noarch/bcondtest-1.0-1.noarch.rpm |
+    grep has_bcond | sort
+],
+[0],
+[],
+[])
+
+# bcond behavior, CLI overriding a complex default
+RPMTEST_CHECK([
+runroot rpmbuild -bb --quiet --with both_features /data/SPECS/bcondtest.spec
+runroot rpm -q --provides -p /build/RPMS/noarch/bcondtest-1.0-1.noarch.rpm |
+    grep has_bcond | sort
+],
+[0],
+[has_bcond(both_features)
+has_bcond(normally_off)
 ],
 [])
 RPMTEST_CLEANUP
@@ -2554,6 +2830,40 @@ error: parsing failed
 
 RPMTEST_CLEANUP
 
+# ------------------------------
+# Check failing dynamic spec generation
+AT_SETUP([rpmbuild with dynamic spec generation fail])
+AT_KEYWORDS([build])
+RPMDB_INIT
+RPMTEST_CHECK([
+
+runroot rpmbuild --quiet -D "FULLDYNAMIC 1" -D "FORBIDDENSECTION 1" -ba /data/SPECS/dynamic.spec
+],
+[1],
+[],
+[error: Section %check is not allowed after build is done!
+error: parsing failed
+])
+
+RPMTEST_CLEANUP
+
+# ------------------------------
+# Check failing dynamic spec generation
+AT_SETUP([rpmbuild with dynamic spec generation fail])
+AT_KEYWORDS([build])
+RPMDB_INIT
+RPMTEST_CHECK([
+
+runroot rpmbuild --quiet -D "FULLDYNAMIC 1" -D "FORBIDDENTAG 1" -ba /data/SPECS/dynamic.spec
+],
+[1],
+[],
+[error: line 4: Tag not allowed after build is done: BuildRequires: python3
+error: parsing failed
+])
+
+RPMTEST_CLEANUP
+
 
 # ------------------------------
 # Check source name with space
@@ -2594,5 +2904,29 @@ rpmspec --define "nosuchmacro /bbb" --parse /data/SPECS/badftrigger.spec
 ],
 [0],
 [ignore],
+[])
+RPMTEST_CLEANUP
+
+AT_SETUP([rpmbuild interactive])
+AT_KEYWORDS([build])
+RPMDB_INIT
+
+RPMTEST_CHECK([
+runroot rpmbuild --quiet -bb /data/SPECS/interact.spec
+],
+[1],
+[ignore],
+[ignore])
+RPMTEST_CLEANUP
+
+AT_SETUP([rpmbuild bpf file])
+AT_KEYWORDS([build])
+RPMDB_INIT
+
+RPMTEST_CHECK([
+runroot rpmbuild --quiet -bb /data/SPECS/bpf.spec
+],
+[0],
+[],
 [])
 RPMTEST_CLEANUP
